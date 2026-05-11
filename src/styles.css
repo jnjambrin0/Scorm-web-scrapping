@@ -160,6 +160,17 @@ select {
   font: inherit;
 }
 
+/* Pointer cursor for everything clickable. Tailwind v4 follows the browser
+   default (text cursor on <button>), which makes interactive elements feel
+   inert. `:where()` keeps specificity at 0 so disabled/utility overrides
+   (e.g. `disabled:cursor-not-allowed` on the Button primitive) still win. */
+:where(button, summary, [role="button"], [role="switch"], [role="tab"]):not(
+    :disabled,
+    [aria-disabled="true"]
+  ) {
+  cursor: pointer;
+}
+
 /* Single global focus-visible — replaces every per-component focus ring.
    :where() keeps specificity at 0 so component-level overrides still win. */
 :where(button, input, textarea, select, [role="button"], [role="switch"], summary, a):focus-visible {
