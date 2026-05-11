@@ -109,10 +109,6 @@ NOTION_API_KEY=ntn_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 BLACKBOARD_BASE_URL=https://<tu-institución>.blackboard.com/ultra/stream
 ```
 
-Los tokens nuevos de Notion suelen empezar por `ntn_`; si tu conexión es
-antigua puede empezar por `secret_`. Ambos formatos sirven. No añadas comillas,
-espacios antes o después del `=`, ni pegues este token en chats, issues,
-capturas públicas o commits.
 
 Sustituye `<tu-institución>` por el subdominio real de tu universidad
 (el que ya aparece en la URL del navegador cuando estás dentro de Blackboard).
@@ -172,9 +168,6 @@ Debajo del token, en **Capabilities**, deja activadas estas capacidades:
   papelera la página creada cuando usas `--delete-after` o el ajuste
   **Borrar tras validar**.
 
-Notion recomienda pedir los permisos mínimos. Para esta app la configuración
-práctica es activar las tres capacidades anteriores desde el principio, porque
-cubre el flujo normal, la publicación con medios y las pruebas de validación.
 
 ### 3. Dar acceso a la página padre en Notion
 
@@ -185,11 +178,11 @@ El paso crítico es este: una conexión interna recién creada **no tiene acceso
 ninguna página por defecto**. Aunque el token sea correcto, Notion rechazará la
 petición si no compartes antes la página padre con la conexión.
 
-1. En Notion, crea o reutiliza una página llamada **Universidad**. Si prefieres
-   otro nombre, también vale; luego pon ese mismo nombre en los Ajustes de la
-   app, en **Página padre en Notion**.
-2. Vuelve a la configuración de la conexión `SCORM Sync`.
-3. Entra en la pestaña **Content access**.
+1. En Notion, necesitas tener al menos una pagina donde guardar el contenido.
+   Esta va a ser la pagina padre en la aplicacion, recuerda el nombre y ponlo
+   en los Ajustes de la app, en **Página padre en Notion**.
+3. Vuelve a la configuración de la conexión `SCORM Sync` en https://www.notion.so/profile/integrations.
+4. Entra en la pestaña **Content access**.
 
 ![Pestaña Content access de la conexión de Notion](docs/assets/readme/notion-api-guide/step5.png)
 
@@ -235,7 +228,7 @@ El subdominio cambia según la universidad. Si no estás seguro:
 3. Copia la parte hasta `/ultra/stream`.
 4. Pégala en `.env` como `BLACKBOARD_BASE_URL`.
 
-## Uso
+## Uso (Leer detenidamente antes de comenzar)
 
 ### 1. Arranca la app
 
