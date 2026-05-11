@@ -1,0 +1,376 @@
+@import "tailwindcss";
+
+/* Design tokens (Apple macOS Sonoma/Sequoia, light only).
+   Tailwind v4 auto-generates utilities from these:
+     --color-*    → bg-*, text-*, border-*, ring-*, outline-*, fill-*, stroke-*
+     --text-*     → text-* (font-size, with paired --text-*--line-height)
+     --leading-*  → leading-*
+     --radius-*   → rounded-*
+     --shadow-*   → shadow-*
+     --ease-*     → ease-*
+     --duration-* → duration-*
+     --opacity-*  → opacity-*
+   Z-index and other non-namespaced tokens live in :root and are used via
+   arbitrary syntax: z-[var(--z-sticky)]. */
+@theme {
+  /* Surfaces */
+  --color-canvas: #f5f5f7;
+  --color-canvas-tint: #fbfbfd;
+  --color-surface: #ffffff;
+  --color-surface-quiet: #f5f5f7;
+
+  /* Text */
+  --color-ink: #1d1d1f;
+  --color-ink-soft: #3a3a3c;
+  --color-ink-muted: #6e6e73;
+  --color-ink-faint: #86868b;
+
+  /* Lines */
+  --color-line: #d2d2d7;
+  --color-line-strong: #b9b9bf;
+  --color-line-soft: #e5e5ea;
+
+  /* Semantic — Apple system */
+  --color-accent: #0071e3;
+  --color-accent-hover: #0077ed;
+  --color-accent-active: #0058b8;
+  --color-accent-soft: #e6f0fd;
+  --color-success: #34c759;
+  --color-success-hover: #30b956;
+  --color-success-soft: #e8f8ec;
+  --color-warning: #ff9500;
+  --color-warning-soft: #fff2e0;
+  --color-danger: #ff3b30;
+  --color-danger-hover: #e8362c;
+  --color-danger-soft: #fdeae8;
+
+  /* Log palette (calm, WCAG AA on dark neutral bg) */
+  --color-log-bg: #1c1c1e;
+  --color-log-bg-empty: #2c2c2e;
+  --color-log-text: #f2f2f7;
+  --color-log-stdout: #a3d9a5;
+  --color-log-stderr: #f5b7a8;
+  --color-log-system: #f0d99a;
+  --color-log-meta: #98989d;
+
+  /* Typography — Apple SF scale subset (font-size + paired line-height) */
+  --text-caption2: 0.6875rem;             /* 11px micro labels */
+  --text-caption2--line-height: 1.27;
+  --text-caption1: 0.75rem;               /* 12px hints, prefixes */
+  --text-caption1--line-height: 1.33;
+  --text-footnote: 0.8125rem;             /* 13px body small, field label */
+  --text-footnote--line-height: 1.38;
+  --text-subhead: 0.9375rem;              /* 15px body, hero subtitle */
+  --text-subhead--line-height: 1.4;
+  --text-body: 1.0625rem;                 /* 17px primary body */
+  --text-body--line-height: 1.41;
+  --text-title3: 1.25rem;                 /* 20px card heading */
+  --text-title3--line-height: 1.25;
+  --text-title2: 1.375rem;                /* 22px section heading */
+  --text-title2--line-height: 1.18;
+  --text-title1: 1.75rem;                 /* 28px hero */
+  --text-title1--line-height: 1.14;
+  --text-mono: 0.75rem;                   /* 12px mono for log lines */
+  --text-mono--line-height: 1.55;
+
+  /* Standalone line heights for cases where text class is set elsewhere */
+  --leading-caption2: 1.27;
+  --leading-caption1: 1.33;
+  --leading-footnote: 1.38;
+  --leading-subhead: 1.4;
+  --leading-body: 1.41;
+  --leading-title3: 1.25;
+  --leading-title2: 1.18;
+  --leading-title1: 1.14;
+  --leading-mono: 1.55;
+
+  /* Radii — Apple-tight corners */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
+  --radius-xl: 12px;
+  --radius-2xl: 16px;
+  --radius-full: 9999px;
+
+  /* Shadows — 1-2px elevation, monotone */
+  --shadow-elev-1: 0 1px 2px rgba(0, 0, 0, 0.04), 0 1px 1px rgba(0, 0, 0, 0.03);
+  --shadow-elev-2: 0 2px 6px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-elev-3: 0 6px 16px rgba(0, 0, 0, 0.06), 0 2px 4px rgba(0, 0, 0, 0.04);
+  --shadow-button-primary: 0 1px 2px rgba(0, 113, 227, 0.18);
+  --shadow-button-success: 0 1px 2px rgba(52, 199, 89, 0.18);
+  --shadow-button-danger: 0 1px 2px rgba(255, 59, 48, 0.18);
+  --shadow-focus-ring: 0 0 0 3px rgba(0, 113, 227, 0.30);
+  --shadow-focus-ring-danger: 0 0 0 3px rgba(255, 59, 48, 0.30);
+
+  /* Motion */
+  --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-emphasized: cubic-bezier(0.2, 0, 0, 1);
+  --duration-fast: 150ms;
+  --duration-base: 200ms;
+  --duration-slow: 320ms;
+
+  /* Opacity */
+  --opacity-disabled: 0.4;
+  --opacity-muted: 0.6;
+  --opacity-subtle: 0.8;
+}
+
+/* Non-namespaced design variables — used via arbitrary syntax. */
+:root {
+  color-scheme: light;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display",
+    "Segoe UI", sans-serif;
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+
+  --z-base: 0;
+  --z-sticky: 10;
+  --z-dropdown: 20;
+  --z-tooltip: 40;
+  --z-modal: 50;
+  --z-toast: 60;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  min-width: 320px;
+  background: var(--color-canvas);
+}
+
+body {
+  min-width: 320px;
+  min-height: 100vh;
+  margin: 0;
+  background: var(--color-canvas);
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+/* Single global focus-visible — replaces every per-component focus ring.
+   :where() keeps specificity at 0 so component-level overrides still win. */
+:where(button, input, textarea, select, [role="button"], [role="switch"], summary, a):focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus-ring);
+  border-radius: inherit;
+}
+
+/* Solid surfaces — no blur, no glass. */
+.surface {
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  box-shadow: var(--shadow-elev-1);
+}
+
+.surface-elevated {
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  box-shadow: var(--shadow-elev-2);
+}
+
+.surface-quiet {
+  background: var(--color-surface-quiet);
+  border: 1px solid var(--color-line-soft);
+}
+
+.surface-tint-success {
+  background: var(--color-success-soft);
+  border: 1px solid color-mix(in srgb, var(--color-success) 24%, transparent);
+  box-shadow: var(--shadow-elev-1);
+}
+
+.surface-tint-warning {
+  background: var(--color-warning-soft);
+  border: 1px solid color-mix(in srgb, var(--color-warning) 24%, transparent);
+  box-shadow: var(--shadow-elev-1);
+}
+
+.surface-tint-danger {
+  background: var(--color-danger-soft);
+  border: 1px solid color-mix(in srgb, var(--color-danger) 24%, transparent);
+  box-shadow: var(--shadow-elev-1);
+}
+
+.surface-tint-info {
+  background: var(--color-accent-soft);
+  border: 1px solid color-mix(in srgb, var(--color-accent) 24%, transparent);
+  box-shadow: var(--shadow-elev-1);
+}
+
+/* Mount animation for cards — opt-in via [data-enter="card"]. */
+@keyframes surface-enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+[data-enter="card"] {
+  animation: surface-enter var(--duration-base) var(--ease-standard);
+}
+
+/* Toast slide-in from the top edge. */
+@keyframes toast-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+[data-enter="toast"] {
+  animation: toast-enter var(--duration-base) var(--ease-emphasized);
+}
+
+/* Modal dialog (native <dialog>) — Apple System Settings style. The dialog is
+   transitioned via @starting-style for browsers that support it; older
+   browsers just see an instant open without animation, which is acceptable. */
+dialog.modal {
+  padding: 0;
+  margin: auto;
+  border: none;
+  background: var(--color-surface);
+  color: var(--color-ink);
+  border-radius: 16px;
+  box-shadow: var(--shadow-elev-3);
+  max-width: 520px;
+  width: calc(100vw - 2rem);
+  max-height: calc(100vh - 4rem);
+  opacity: 1;
+  transform: scale(1);
+  transition:
+    opacity var(--duration-base) var(--ease-standard),
+    transform var(--duration-base) var(--ease-standard),
+    overlay var(--duration-base) var(--ease-standard) allow-discrete,
+    display var(--duration-base) var(--ease-standard) allow-discrete;
+}
+
+dialog.modal::backdrop {
+  background: rgba(0, 0, 0, 0.3);
+  transition:
+    background var(--duration-base) var(--ease-standard),
+    overlay var(--duration-base) var(--ease-standard) allow-discrete,
+    display var(--duration-base) var(--ease-standard) allow-discrete;
+}
+
+@starting-style {
+  dialog.modal[open] {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  dialog.modal[open]::backdrop {
+    background: rgba(0, 0, 0, 0);
+  }
+}
+
+/* Slider (native range input restyled). Track receives a linear-gradient
+   inline (filled portion on the left), thumb is a small white circle with
+   subtle elevation. Focus ring shares the global token. */
+input[type="range"].slider {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 100%;
+  height: 6px;
+  border-radius: 9999px;
+  outline: none;
+  cursor: pointer;
+  transition: box-shadow var(--duration-fast) var(--ease-standard);
+}
+
+input[type="range"].slider::-webkit-slider-thumb {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  box-shadow: var(--shadow-elev-1);
+  cursor: pointer;
+  transition: transform var(--duration-fast) var(--ease-standard);
+}
+
+input[type="range"].slider::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  box-shadow: var(--shadow-elev-1);
+  cursor: pointer;
+}
+
+input[type="range"].slider:focus-visible {
+  box-shadow: var(--shadow-focus-ring);
+}
+
+input[type="range"].slider:disabled {
+  opacity: var(--opacity-disabled);
+  cursor: not-allowed;
+}
+
+/* Subtle pulse — replaces the old glass-pulse, same timing. */
+@keyframes pulse-subtle {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.animate-pulse-subtle {
+  animation: pulse-subtle 1.4s var(--ease-standard) infinite;
+}
+
+/* Quiet scrollbar (Apple-like). */
+.scrollbar-quiet {
+  scrollbar-color: rgba(60, 60, 67, 0.24) transparent;
+  scrollbar-width: thin;
+}
+
+.scrollbar-quiet::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.scrollbar-quiet::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scrollbar-quiet::-webkit-scrollbar-thumb {
+  background: rgba(60, 60, 67, 0.22);
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background-clip: content-box;
+}
+
+/* Only disable declared animations — keep discrete transitions (hover, focus)
+   so the UI still gives natural feedback under reduced motion. */
+@media (prefers-reduced-motion: reduce) {
+  *[class*="animate-"],
+  [data-enter] {
+    animation: none !important;
+  }
+}

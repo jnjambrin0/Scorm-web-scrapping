@@ -1,0 +1,34 @@
+{
+  "name": "scorm-web-scrapping",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/dev-server.mjs",
+    "web": "node scripts/web-server.mjs",
+    "build": "tsc --noEmit && vite build",
+    "login": "node scripts/blackboard-browser.mjs login",
+    "open": "node scripts/blackboard-browser.mjs open",
+    "check-session": "node scripts/blackboard-browser.mjs check-session",
+    "open-scorm": "node scripts/blackboard-open-scorm.mjs",
+    "export-scorm-md": "node scripts/export-scorm-markdown.mjs",
+    "export-scorm-notion": "node scripts/export-scorm-notion.mjs"
+  },
+  "dependencies": {
+    "@notionhq/client": "^5.20.0",
+    "dotenv": "^17.4.2",
+    "lucide-react": "^1.14.0",
+    "playwright": "^1.52.0",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.2.4",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.1",
+    "tailwindcss": "^4.2.4",
+    "typescript": "^6.0.3",
+    "vite": "^8.0.11"
+  }
+}

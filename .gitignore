@@ -1,0 +1,19 @@
+node_modules/
+dist/
+playwright-report/
+test-results/
+.playwright-mcp/
+
+# Browser sessions contain account cookies and tokens. Never commit them.
+.scorm-scraping/
+.auth/
+exports/
+artifacts/
+
+.DS_Store
+
+.env
+
+# Agent / assistant knowledge bases — local-only, contain working notes.
+CLAUDE.md
+AGENTS.md

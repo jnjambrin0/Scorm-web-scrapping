@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="SCORM a Notion">
+  <title>SCORM a Notion</title>
+  <defs>
+    <linearGradient id="sq-bg" x1="120" y1="80" x2="960" y2="980" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0a84ff"/>
+      <stop offset="1" stop-color="#0058b8"/>
+    </linearGradient>
+    <linearGradient id="sheen" x1="512" y1="0" x2="512" y2="560" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.18"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="page-fold" x1="620" y1="240" x2="740" y2="360" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#cfdaea"/>
+      <stop offset="1" stop-color="#edf1f7"/>
+    </linearGradient>
+    <linearGradient id="pill" x1="320" y1="582" x2="504" y2="620" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#34c759"/>
+      <stop offset="1" stop-color="#2bb249"/>
+    </linearGradient>
+    <filter id="card-shadow" x="-15%" y="-10%" width="130%" height="130%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="12"/>
+      <feOffset dx="0" dy="8"/>
+      <feComponentTransfer><feFuncA type="linear" slope="0.18"/></feComponentTransfer>
+      <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <path d="M0 230C0 76.7 76.7 0 230 0H794C947.3 0 1024 76.7 1024 230V794C1024 947.3 947.3 1024 794 1024H230C76.7 1024 0 947.3 0 794Z" fill="url(#sq-bg)"/>
+
+  <path d="M0 230C0 76.7 76.7 0 230 0H794C947.3 0 1024 76.7 1024 230V520C760 560 264 560 0 520Z" fill="url(#sheen)"/>
+
+  <g filter="url(#card-shadow)">
+    <path d="M310 240H620L760 380V756C760 780 740 800 716 800H310C286 800 266 780 266 756V284C266 260 286 240 310 240Z" fill="#ffffff"/>
+    <path d="M620 240V356C620 369 631 380 644 380H760L620 240Z" fill="url(#page-fold)"/>
+  </g>
+
+  <rect x="320" y="430" width="260" height="26" rx="13" fill="#0071e3"/>
+
+  <rect x="320" y="488" width="340" height="14" rx="7" fill="#0071e3" fill-opacity="0.22"/>
+  <rect x="320" y="522" width="290" height="14" rx="7" fill="#0071e3" fill-opacity="0.22"/>
+
+  <rect x="320" y="582" width="184" height="38" rx="19" fill="url(#pill)"/>
+  <path d="M348 602 L362 616 L392 585" stroke="#ffffff" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+
+  <rect x="320" y="652" width="320" height="14" rx="7" fill="#0071e3" fill-opacity="0.22"/>
+  <rect x="320" y="686" width="260" height="14" rx="7" fill="#0071e3" fill-opacity="0.22"/>
+  <rect x="320" y="720" width="200" height="14" rx="7" fill="#0071e3" fill-opacity="0.22"/>
+</svg>
