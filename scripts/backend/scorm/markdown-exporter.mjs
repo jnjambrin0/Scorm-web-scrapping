@@ -6,6 +6,7 @@ import { launchPersistentContext } from "../browser/context.mjs";
 import { configuredCourseOutlineUrl, resolveExportTitle } from "../shared/env.mjs";
 import {
   EXPORT_DIR,
+  NOTION_ASSET_DIR,
   RAW_EXPORT_DIR,
   SCORM_EXPORT_MANIFEST_PATH as EXPORT_MANIFEST_PATH,
 } from "../shared/paths.mjs";
@@ -161,6 +162,30 @@ export async function exportScormMarkdown(options = {}) {
       await context.close();
     }
   }
+}
+
+/**
+ * Wipe the on-disk SCORM export cache so the next run starts from scratch.
+ * Called when the current job targets a different `COURSE_OUTLINE_URL` than
+ * the cached manifest, or when the user explicitly passes `--refresh`. Silent
+ * by design — the caller logs once after invoking it.
+ */
+export async function clearScormExportCache() {
+  let cachedOutPath = null;
+  try {
+    const manifest = JSON.parse(await fs.readFile(EXPORT_MANIFEST_PATH, "utf8"));
+    if (typeof manifest.outPath === "string" && manifest.outPath) {
+      cachedOutPath = manifest.outPath;
+    }
+  } catch {
+    // No manifest, or unreadable — nothing more to discover.
+  }
+
+  await Promise.all([
+    fs.rm(EXPORT_MANIFEST_PATH, { force: true }),
+    fs.rm(NOTION_ASSET_DIR, { recursive: true, force: true }),
+    cachedOutPath ? fs.rm(cachedOutPath, { force: true }) : Promise.resolve(),
+  ]);
 }
 
 const isDirectRun = process.argv[1] === fileURLToPath(import.meta.url);

@@ -4,9 +4,11 @@ import { Client } from "@notionhq/client";
 import fs from "node:fs/promises";
 
 import {
+  clearScormExportCache,
   exportScormMarkdown,
   launchPersistentContext,
 } from "../scorm/markdown-exporter.mjs";
+import { configuredCourseOutlineUrl } from "../shared/env.mjs";
 import {
   NOTION_ASSET_MANIFEST_PATH,
   SCORM_EXPORT_MANIFEST_PATH,
@@ -65,16 +67,25 @@ async function loadExistingExport() {
 }
 
 async function getScormExport(options) {
+  const currentUrl = configuredCourseOutlineUrl();
+
   if (!options.refresh) {
     try {
       logProgress(`Loading cached SCORM export manifest: ${SCORM_EXPORT_MANIFEST_PATH}`);
       const scormExport = await loadExistingExport();
-      logProgress(
-        `Loaded Markdown export: ${
-          Array.isArray(scormExport.lessons) ? scormExport.lessons.length : 0
-        } lessons, ${formatBytes(scormExport.bytes)}.`,
-      );
-      return scormExport;
+      const cachedUrl = (scormExport.courseOutlineUrl || "").trim();
+      if (currentUrl && cachedUrl !== currentUrl) {
+        logProgress(
+          "Cached SCORM export targets a different URL; invalidating cache and refreshing.",
+        );
+      } else {
+        logProgress(
+          `Loaded Markdown export: ${
+            Array.isArray(scormExport.lessons) ? scormExport.lessons.length : 0
+          } lessons, ${formatBytes(scormExport.bytes)}.`,
+        );
+        return scormExport;
+      }
     } catch {
       logProgress(
         "Cached SCORM export is not available; opening Blackboard/SCORM to refresh it.",
@@ -84,6 +95,9 @@ async function getScormExport(options) {
   } else {
     logProgress("Refreshing Markdown export from the authenticated SCORM session.");
   }
+
+  await clearScormExportCache();
+  logProgress("Cleared cached SCORM export and Notion assets.");
 
   const context = await launchPersistentContext();
   try {
@@ -188,7 +202,7 @@ async function main() {
   logProgress(
     `Collected ${mediaReferences} media references (${assets.length} unique assets).`,
   );
-  const cachedAssets = await applyCachedAssetManifest(assets);
+  const cachedAssets = await applyCachedAssetManifest(assets, scormExport);
   logProgress(`Restored ${cachedAssets} assets from local cache.`);
 
   if (assets.some((asset) => asset.absoluteUrl && asset.status !== "downloaded")) {

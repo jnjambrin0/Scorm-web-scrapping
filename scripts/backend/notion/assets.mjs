@@ -206,13 +206,26 @@ async function fileExists(filePath) {
   }
 }
 
-export async function applyCachedAssetManifest(assets) {
-  let cachedAssets = [];
+export async function applyCachedAssetManifest(assets, scormExport) {
+  let manifest;
   try {
-    cachedAssets = (await readJson(NOTION_ASSET_MANIFEST_PATH)).assets || [];
+    manifest = await readJson(NOTION_ASSET_MANIFEST_PATH);
   } catch {
     return 0;
   }
+  // Defensive: refuse to reuse an asset manifest that was generated for a
+  // different Markdown export. The exporter wipes the asset directory on URL
+  // mismatch, but if anything leaks through (corrupted state, hand-edited
+  // manifest) this prevents cross-URL contamination of media references.
+  if (
+    typeof manifest.sourceMarkdown === "string" &&
+    manifest.sourceMarkdown &&
+    scormExport?.outPath &&
+    manifest.sourceMarkdown !== scormExport.outPath
+  ) {
+    return 0;
+  }
+  const cachedAssets = manifest.assets || [];
   let restoredAssets = 0;
 
   const cachedByUrl = new Map(
