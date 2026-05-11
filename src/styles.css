@@ -329,7 +329,7 @@ input[type="range"].slider:disabled {
   cursor: not-allowed;
 }
 
-/* Subtle pulse — replaces the old glass-pulse, same timing. */
+/* Subtle pulse used for loading affordances. */
 @keyframes pulse-subtle {
   0%,
   100% {

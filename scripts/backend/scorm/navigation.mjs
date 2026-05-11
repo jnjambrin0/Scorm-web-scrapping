@@ -24,14 +24,26 @@ function requireScormTitle() {
   return title;
 }
 
+// Blackboard's "concurrent session" modal looks like a dismiss dialog, but its
+// "Cerrar" button is not a no-op — clicking it tells Blackboard to consolidate
+// the session into THIS browser and invalidate every other active session for
+// the same account (personal Chrome, other devices, mobile app). Doing that
+// from automation logs the user out everywhere else, which is precisely the
+// bug we're fixing. We must never click any button on this modal.
+//
+// Instead, remove the modal node client-side. No HTTP request reaches
+// Blackboard, so no other session is killed. Asset downloads use
+// `frame.evaluate(() => fetch(...))` with `credentials: "include"` inside the
+// SCORM iframe; they don't depend on the host DOM, so the overlay never
+// actually blocked them — we only needed it out of the way for the `click()`
+// calls higher up the page.
 async function dismissConcurrentSessionModal(page) {
-  const closeButton = page.locator(
-    '#concurrent-session-bbmodal button[aria-label="Cerrar"]',
-  );
-  if ((await closeButton.count().catch(() => 0)) > 0) {
-    await closeButton.click().catch(() => {});
-    await page.waitForTimeout(1000);
-  }
+  await page
+    .evaluate(() => {
+      document.querySelector("#concurrent-session-bbmodal")?.remove();
+      document.querySelector(".bb-modal-backdrop")?.remove();
+    })
+    .catch(() => {});
 }
 
 async function openCourseOutline(page) {

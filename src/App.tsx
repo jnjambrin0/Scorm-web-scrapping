@@ -51,6 +51,19 @@ export default function App() {
     session.run();
   }, [bootstrap.status, job.bootstrapped, session, isMissingBlackboardBase]);
 
+  // Settings is the single source of truth for form defaults. Whenever the
+  // user edits a default in the Settings modal, propagate it into the live
+  // form immediately so the next Publish/Dry-run picks it up. Without this
+  // hook, `useFormState` only consumes `settings.formDefaults` at mount and
+  // every later settings change is silently dropped — the form keeps the
+  // stale value and `envOverrides` publishes under the wrong Notion parent.
+  useEffect(() => {
+    form.merge(settings.formDefaults);
+    // form.merge is a stable useCallback ref; only the settings snapshot
+    // drives this effect.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settings.formDefaults]);
+
   function startCommand(command: Command) {
     if (command !== "check-session") {
       const result = form.validate();
