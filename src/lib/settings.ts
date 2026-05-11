@@ -32,7 +32,11 @@ export const DEFAULT_SETTINGS: Settings = {
   },
   notion: {
     mediaWidthRatio: 0.85,
-    paidPlan: false,
+    // Default `true` because the canonical user — a university student —
+    // typically has Notion Education (free, paid-tier limits). If they're
+    // actually on Free we surface the `file_upload_invalid_size` error with
+    // a clear 3-option hint so they can turn this off in one click.
+    paidPlan: true,
   },
 };
 

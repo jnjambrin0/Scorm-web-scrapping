@@ -241,6 +241,20 @@ Puedes cambiar:
   esos toggles arranquen activados.
 - **Ancho de medios en Notion**: ajusta cómo de anchas se ven imágenes y
   vídeos en las páginas que se publiquen (50–100 %).
+- **Tengo Notion Plus, Business o Education**: controla el filtro de tamaño
+  de archivos. Notion limita cada subida a **5 MiB en el plan gratuito** y a
+  **5 GiB en los planes de pago** (Plus, Business, Education, Enterprise).
+  Activado por defecto porque la mayoría de estudiantes tenéis
+  [Notion Education gratis](https://www.notion.com/students). Detalles:
+  - **Activado**: subimos todo sin comprobaciones previas.
+  - **Desactivado**: cualquier imagen o vídeo por encima de 5 MiB se omite
+    automáticamente y en su sitio aparece un párrafo `[Imagen omitido: nombre
+    — supera 5 MiB del plan gratuito de Notion]`. Así el publish no falla.
+  - Si lo dejas activado pero tu workspace es Free, Notion devuelve
+    `file_upload_invalid_size`. La app lo detecta y te muestra un error con
+    tres opciones: desactivar el switch, contratar
+    [Education](https://www.notion.com/students) (gratis para estudiantes
+    verificados) o pasar a [Plus / Business](https://www.notion.com/pricing).
 - **Sistema**: ver de un vistazo si tu `.env` está bien configurado.
 
 Los cambios se guardan automáticamente (no hay botón "Guardar").
@@ -254,6 +268,7 @@ Los cambios se guardan automáticamente (no hay botón "Guardar").
 | Toast **"Blackboard no responde"** | Internet lento o la URL del curso no carga en 30 s. Reintenta cuando tengas mejor conexión. |
 | Toast **"URL no accesible"** | El dominio que pusiste en `BLACKBOARD_BASE_URL` no resuelve. Probable typo en el subdominio. |
 | Error **"Notion ha rechazado la petición"** | Tu integración no tiene acceso a la página padre. Comparte la página padre con la integración (paso 2 de configuración). |
+| Error **"Notion rechazó un archivo por tamaño"** | Algún archivo supera el límite de tu workspace (5 MiB en Free, 5 GiB en Plus/Business/Education). Ve a Ajustes y desactiva **"Tengo Notion Plus, Business o Education"** para que los archivos grandes se omitan automáticamente, o sube de plan (Education es gratis para estudiantes). |
 | Error **"Sesión de Blackboard caducada"** durante un publish | Microsoft te ha invalidado la sesión a mitad de proceso. Cancela el job, pulsa el chip para re-loguear, y reintenta. |
 | **"Navegador de Playwright no instalado"** | Ejecuta `npx playwright install chromium` en la raíz del proyecto. |
 
