@@ -119,11 +119,10 @@ Las dos secciones siguientes explican cómo conseguir cada valor.
 
 1. Entra a [notion.so/profile/integrations](https://www.notion.so/profile/integrations)
    con tu cuenta.
-2. Pulsa **+ New integration**.
+2. Pulsa **+ New integration** o ** Nueva conexión**.
 3. Rellena:
    - **Name**: `SCORM Sync` (o cualquier nombre reconocible).
    - **Associated workspace**: tu workspace.
-   - **Type**: **Internal**.
 4. Guarda → entra dentro de la integración recién creada → pestaña
    **Configuration**.
 5. En **Capabilities** marca:
