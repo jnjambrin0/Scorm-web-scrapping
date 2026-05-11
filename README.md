@@ -16,8 +16,6 @@ Notion para tomar apuntes encima. Pegas la URL de la unidad, la app se encarga
 del resto: descarga el contenido autenticado, lo convierte y lo sube como
 bloques de Notion con imágenes, vídeos, tablas y listas.
 
-![Pantalla principal de la app local](docs/assets/readme/local-app.png)
-
 ## Índice
 
 - [¿Qué hace esta app y para quién es?](#qué-hace-esta-app-y-para-quién-es)
@@ -25,9 +23,10 @@ bloques de Notion con imágenes, vídeos, tablas y listas.
 - [Requisitos](#requisitos)
 - [Instalación](#instalación)
 - [Configuración (el `.env`)](#configuración-el-env)
-  - [1. Conseguir tu token de Notion](#1-conseguir-tu-token-de-notion)
-  - [2. Crear la página padre en Notion y darle acceso](#2-crear-la-página-padre-en-notion-y-darle-acceso)
-  - [3. URL base de Blackboard](#3-url-base-de-blackboard)
+  - [1. Crear la conexión interna de Notion](#1-crear-la-conexión-interna-de-notion)
+  - [2. Copiar el token de Notion en `.env`](#2-copiar-el-token-de-notion-en-env)
+  - [3. Dar acceso a la página padre en Notion](#3-dar-acceso-a-la-página-padre-en-notion)
+  - [4. URL base de Blackboard](#4-url-base-de-blackboard)
 - [Uso](#uso)
   - [1. Arranca la app](#1-arranca-la-app)
   - [2. Inicia sesión en Blackboard](#2-inicia-sesión-en-blackboard)
@@ -106,47 +105,121 @@ cp .env.example .env
 Abre `.env` con tu editor favorito. Tiene que quedar así:
 
 ```bash
-NOTION_API_KEY=secret_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+NOTION_API_KEY=ntn_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 BLACKBOARD_BASE_URL=https://<tu-institución>.blackboard.com/ultra/stream
 ```
+
+Los tokens nuevos de Notion suelen empezar por `ntn_`; si tu conexión es
+antigua puede empezar por `secret_`. Ambos formatos sirven. No añadas comillas,
+espacios antes o después del `=`, ni pegues este token en chats, issues,
+capturas públicas o commits.
 
 Sustituye `<tu-institución>` por el subdominio real de tu universidad
 (el que ya aparece en la URL del navegador cuando estás dentro de Blackboard).
 
-Las dos secciones siguientes explican cómo conseguir cada valor.
+Las secciones siguientes explican cómo conseguir cada valor y, sobre todo, cómo
+darle a la conexión permiso real sobre la página de Notion donde quieres
+publicar. Este segundo permiso es obligatorio: el token por sí solo no puede ver
+ni crear nada dentro de tu workspace.
 
-### 1. Conseguir tu token de Notion
+### 1. Crear la conexión interna de Notion
 
-1. Entra a [notion.so/profile/integrations](https://www.notion.so/profile/integrations)
-   con tu cuenta.
-2. Pulsa **+ New integration** o ** Nueva conexión**.
-3. Rellena:
-   - **Name**: `SCORM Sync` (o cualquier nombre reconocible).
-   - **Associated workspace**: tu workspace.
-4. Guarda → entra dentro de la integración recién creada → pestaña
-   **Configuration**.
-5. En **Capabilities** marca:
-   - ✅ Read content
-   - ✅ Update content
-   - ✅ Insert content
-6. En la misma pestaña copia el **Internal Integration Token** (empieza por
-   `secret_` o `ntn_`).
-7. Pégalo en `.env` como `NOTION_API_KEY`.
+Notion llama **internal connection** a este tipo de clave privada para un solo
+workspace. En algunas pantallas antiguas o textos de ayuda también verás la
+palabra "integration"; en este README nos referimos a lo mismo.
 
-### 2. Crear la página padre en Notion y darle acceso
+Necesitas ser **Workspace owner** para crear una conexión interna. En un
+workspace personal normalmente ya lo eres.
+
+1. Entra en
+   [notion.so/profile/integrations](https://www.notion.so/profile/integrations)
+   con la misma cuenta de Notion donde quieres publicar tus apuntes.
+2. En la pantalla **Internal connections**, pulsa **Create a new connection**.
+
+![Pantalla de Internal connections con el botón para crear una conexión nueva](docs/assets/readme/notion-api-guide/step1.png)
+
+3. En **Connection name**, escribe un nombre reconocible. El README usa
+   `SCORM Sync`, pero puedes poner otro.
+4. En **Installable in**, elige el workspace correcto. Este punto importa: el
+   token solo funcionará en el workspace que selecciones aquí.
+5. Pulsa **Create**.
+
+![Formulario de nueva conexión interna con nombre y workspace](docs/assets/readme/notion-api-guide/step2.png)
+
+6. Cuando Notion confirme que se ha creado, pulsa
+   **Configure connection settings**.
+
+![Confirmación de conexión creada y botón para configurar ajustes](docs/assets/readme/notion-api-guide/step3.png)
+
+### 2. Copiar el token de Notion en `.env`
+
+Dentro de la conexión, Notion abre la pestaña **Configuration**. Ahí están el
+token y las capacidades de la conexión.
+
+1. En **Installation access token**, pulsa **Show**.
+2. Copia el valor completo. Es secreto y funciona como una contraseña de API.
+3. Pégalo en tu archivo `.env` como `NOTION_API_KEY`.
+
+![Token de instalación de la conexión interna de Notion](docs/assets/readme/notion-api-guide/step4.png)
+
+Debajo del token, en **Capabilities**, deja activadas estas capacidades:
+
+- **Read content**: la app puede encontrar o verificar la página padre que le
+  indiques.
+- **Insert content**: imprescindible para crear la página hija de cada unidad y
+  añadir bloques, imágenes, vídeos y archivos.
+- **Update content**: necesario para el modo de validación que mueve a la
+  papelera la página creada cuando usas `--delete-after` o el ajuste
+  **Borrar tras validar**.
+
+Notion recomienda pedir los permisos mínimos. Para esta app la configuración
+práctica es activar las tres capacidades anteriores desde el principio, porque
+cubre el flujo normal, la publicación con medios y las pruebas de validación.
+
+### 3. Dar acceso a la página padre en Notion
 
 La app crea cada unidad como una página **hija** dentro de una página que tú
 elijas. Esa "página padre" es donde se irán acumulando todos tus apuntes.
 
-1. En Notion, crea (o reutiliza) una página llamada **Universidad**. Si
-   prefieres otro nombre, también vale — luego lo cambias en los Ajustes de
-   la app.
-2. Abre esa página → menú `···` arriba a la derecha → **+ Connections** →
-   busca el nombre de tu integración (la del paso 1) → **Confirm**.
+El paso crítico es este: una conexión interna recién creada **no tiene acceso a
+ninguna página por defecto**. Aunque el token sea correcto, Notion rechazará la
+petición si no compartes antes la página padre con la conexión.
 
-Sin este paso, tu token no podrá crear páginas dentro.
+1. En Notion, crea o reutiliza una página llamada **Universidad**. Si prefieres
+   otro nombre, también vale; luego pon ese mismo nombre en los Ajustes de la
+   app, en **Página padre en Notion**.
+2. Vuelve a la configuración de la conexión `SCORM Sync`.
+3. Entra en la pestaña **Content access**.
 
-### 3. URL base de Blackboard
+![Pestaña Content access de la conexión de Notion](docs/assets/readme/notion-api-guide/step5.png)
+
+4. Pulsa **Edit access**.
+5. En **Select pages**, busca la página padre. En la captura se está buscando
+   una página llamada `Educational`; en tu caso puede ser `Universidad`, `U-tad`,
+   `Apuntes` o el nombre que hayas elegido.
+6. Selecciona la página y pulsa **Save**.
+
+![Ventana de gestión de acceso a páginas para la conexión de Notion](docs/assets/readme/notion-api-guide/step6.png)
+
+Compartir una página padre con la conexión también le da acceso a sus páginas
+hijas. Por eso esta app crea cada unidad SCORM debajo de esa página y no intenta
+crear contenido suelto en todo el workspace.
+
+Si la interfaz de Notion cambia, usa la ruta alternativa oficial desde la propia
+página: abre la página padre en Notion, pulsa el menú `•••` de arriba a la
+derecha, entra en **Connections** / **Add connection**, busca `SCORM Sync` y
+confirma el acceso.
+
+Si tienes varias páginas con el mismo nombre, abre los Ajustes de la app y usa
+**ID de página padre** para apuntar a una página concreta. Puedes obtenerlo
+copiando el enlace de la página desde Notion: el ID es la cadena hexadecimal de
+32 caracteres del final de la URL. La app acepta ese ID con o sin guiones.
+
+Sin este paso, verás errores del tipo **"Notion ha rechazado la petición"** o
+mensajes de API indicando que la página no existe o no es accesible para la
+conexión.
+
+### 4. URL base de Blackboard
 
 Es la URL en la que tu navegador aterriza cuando ya has iniciado sesión en
 Blackboard. Tiene esta forma:
@@ -213,7 +286,7 @@ De vuelta en la app local:
 
 1. Pega la URL en el campo **URL de Blackboard**.
 2. Comprueba que **Página padre en Notion** dice el nombre de la página que
-   compartiste con tu integración (paso 2 de Configuración).
+   compartiste con tu conexión interna (paso 3 de Configuración).
 3. (Opcional) Escribe un título para la nueva página de Notion. Si lo dejas
    vacío, se usa el título que ponga la unidad en Blackboard.
 4. Pulsa **Vista previa (dry-run)** para una pasada de validación: descarga
@@ -267,7 +340,7 @@ Los cambios se guardan automáticamente (no hay botón "Guardar").
 | Chip dice **"Inicia sesión en Blackboard"** ámbar | Tu sesión está caducada (o nunca has hecho login). Pulsa el chip y completa el login. |
 | Toast **"Blackboard no responde"** | Internet lento o la URL del curso no carga en 30 s. Reintenta cuando tengas mejor conexión. |
 | Toast **"URL no accesible"** | El dominio que pusiste en `BLACKBOARD_BASE_URL` no resuelve. Probable typo en el subdominio. |
-| Error **"Notion ha rechazado la petición"** | Tu integración no tiene acceso a la página padre. Comparte la página padre con la integración (paso 2 de configuración). |
+| Error **"Notion ha rechazado la petición"** | La conexión interna no tiene acceso a la página padre, el token está mal pegado o falta alguna capacidad. Revisa el paso [Dar acceso a la página padre en Notion](#3-dar-acceso-a-la-página-padre-en-notion). |
 | Error **"Notion rechazó un archivo por tamaño"** | Algún archivo supera el límite de tu workspace (5 MiB en Free, 5 GiB en Plus/Business/Education). Ve a Ajustes y desactiva **"Tengo Notion Plus, Business o Education"** para que los archivos grandes se omitan automáticamente, o sube de plan (Education es gratis para estudiantes). |
 | Error **"Sesión de Blackboard caducada"** durante un publish | Microsoft te ha invalidado la sesión a mitad de proceso. Cancela el job, pulsa el chip para re-loguear, y reintenta. |
 | **"Navegador de Playwright no instalado"** | Ejecuta `npx playwright install chromium` en la raíz del proyecto. |
@@ -332,6 +405,8 @@ Información para quien quiera entender o modificar el código.
 ### Referencias oficiales de Notion
 
 - [Internal connections](https://developers.notion.com/guides/get-started/internal-connections)
+- [Authorization](https://developers.notion.com/guides/get-started/authorization)
+- [Connection capabilities](https://developers.notion.com/reference/capabilities)
 - [Create a page](https://developers.notion.com/reference/post-page)
 - [Append block children](https://developers.notion.com/reference/patch-block-children)
 - [Uploading files](https://developers.notion.com/guides/data-apis/working-with-files-and-media)
