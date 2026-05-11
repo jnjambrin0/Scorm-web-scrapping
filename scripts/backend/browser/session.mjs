@@ -32,24 +32,48 @@ export async function openBlackboard({ mode }) {
     console.log("Using the saved browser profile. Close the window when done.");
   }
 
-  await new Promise((resolve) => {
-    context.on("close", resolve);
-    process.once("SIGINT", async () => {
-      await context.close();
+  await waitUntilUserCloses(context);
+}
+
+// Wait until the user is done with the headed browser, robustly. We can't just
+// listen for `context.on("close")` because on macOS Chromium keeps the
+// underlying app process alive after the user closes its only window
+// ("windowless app" UX), which means the persistent context never sees a
+// close event and the spawned child hangs forever — leaving the
+// "waiting for browser close" toast stuck in the UI. We also watch each
+// page's `close` event and force-close the context once no pages remain.
+async function waitUntilUserCloses(context) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
       resolve();
+    };
+
+    context.on("close", finish);
+
+    const trackPage = (page) => {
+      page.on("close", async () => {
+        // Brief settle so we don't race a tab swap / redirect popup. If
+        // the user really has no pages open after the settle, they're done.
+        await new Promise((r) => setTimeout(r, 250));
+        if (settled) return;
+        if (context.pages().length === 0) {
+          await context.close().catch(() => {});
+          finish();
+        }
+      });
+    };
+    for (const existing of context.pages()) trackPage(existing);
+    context.on("page", trackPage);
+
+    process.once("SIGINT", async () => {
+      await context.close().catch(() => {});
+      finish();
     });
   });
 }
-
-// Blackboard Ultra issues `s_session_id` (TLS-protected, the canonical session
-// marker on https deployments) and may also set `session_id` or `JSESSIONID`
-// on legacy paths. Any non-empty, unexpired cookie from this set means the
-// previous `npm run login` left usable credentials in the persistent profile.
-const SESSION_COOKIE_NAMES = new Set([
-  "s_session_id",
-  "session_id",
-  "JSESSIONID",
-]);
 
 export async function checkSession() {
   const baseUrl = requireBlackboardBaseUrl();
@@ -65,13 +89,19 @@ export async function checkSession() {
   // invalidation (revoked cookie, admin force-logout); in those cases the
   // next Publish/Export will surface `session.expired` via the existing
   // error classifier, which is good enough.
+  //
+  // We don't pin on a specific cookie name. Blackboard SaaS varies wildly
+  // between institutions and gateway configs — `s_session_id`, `session_id`,
+  // `BbRouter`, `web_client_cache_guid`, `JSESSIONID`, and others all
+  // appear. Any non-empty unexpired cookie on the Blackboard host is enough
+  // evidence that a previous `npm run login` seeded the profile. A user who
+  // never logged in has an empty cookie jar for the domain.
   const context = await launchPersistentContext({ headless: true });
   try {
     const cookies = await context.cookies(baseUrl);
     const now = Math.floor(Date.now() / 1000);
-    const session = cookies.find(
+    const hasLiveCookie = cookies.some(
       (cookie) =>
-        SESSION_COOKIE_NAMES.has(cookie.name) &&
         cookie.value !== "" &&
         // Playwright reports session cookies (no Expires attribute) as -1.
         // The persistent profile keeps them across launches, so we treat
@@ -82,9 +112,9 @@ export async function checkSession() {
     console.log(`Profile dir: ${browserProfileDir()}`);
     console.log(`Base URL: ${baseUrl}`);
     console.log(`Stored cookies for domain: ${cookies.length}`);
-    console.log(`Authenticated: ${session ? "probably yes" : "no"}`);
+    console.log(`Authenticated: ${hasLiveCookie ? "probably yes" : "no"}`);
 
-    if (!session) {
+    if (!hasLiveCookie) {
       process.exitCode = 1;
     }
   } finally {
