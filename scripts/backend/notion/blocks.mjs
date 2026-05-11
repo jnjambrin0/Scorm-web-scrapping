@@ -111,8 +111,19 @@ function missingAssetBlock(kind, source) {
   return textBlock("paragraph", `[Missing ${kind}: ${name}]`);
 }
 
+function skippedBySizeBlock(kind, source) {
+  const name = path.posix.basename(source.split("?")[0]) || kind;
+  return textBlock(
+    "paragraph",
+    `[${kind === "video" ? "Vídeo" : "Imagen"} omitido: ${name} — supera 5 MiB del plan gratuito de Notion]`,
+  );
+}
+
 function directMediaBlock(kind, source, caption, assetsBySource) {
   const asset = assetsBySource.get(source);
+  if (asset && asset.uploadStatus === "skipped_size_limit") {
+    return skippedBySizeBlock(kind, source);
+  }
   if (!asset || asset.status !== "downloaded" || !asset.fileUploadId) {
     return missingAssetBlock(kind, source);
   }
@@ -153,7 +164,10 @@ function directMediaBlock(kind, source, caption, assetsBySource) {
   };
 }
 
-function pendingMediaBlock(kind, source) {
+function pendingMediaBlock(kind, source, asset) {
+  if (asset?.uploadStatus === "skipped_size_limit") {
+    return skippedBySizeBlock(kind, source);
+  }
   const name = path.posix.basename(source.split("?")[0]) || kind;
   return textBlock("paragraph", `[${kind}: ${name}]`);
 }
@@ -206,8 +220,9 @@ function centeredMediaBlock(block) {
 }
 
 function mediaBlock(kind, source, caption, assetsBySource, options = {}) {
+  const asset = assetsBySource.get(source);
   const block = options.dryRun
-    ? pendingMediaBlock(kind, source)
+    ? pendingMediaBlock(kind, source, asset)
     : directMediaBlock(kind, source, caption, assetsBySource);
 
   return options.center ? centeredMediaBlock(block) : block;

@@ -23,7 +23,9 @@ export type EnvKey =
   | "SCORM_MARKDOWN_OUT"
   | "NOTION_PARENT_PAGE_ID"
   | "NOTION_PARENT_PAGE_TITLE"
-  | "NOTION_PAGE_TITLE";
+  | "NOTION_PAGE_TITLE"
+  | "NOTION_MEDIA_WIDTH_RATIO"
+  | "NOTION_PAID_PLAN";
 
 export interface ConfigStatus {
   hasNotionApiKey: boolean;

@@ -28,6 +28,11 @@ const SESSION_EXPIRED_LOG = /(Authenticated:\s*no|login\.microsoftonline\.com|\b
 const URL_UNREACHABLE = /\bnet::ERR_(NAME_NOT_RESOLVED|NAME_RESOLUTION_FAILED|CONNECTION_REFUSED|CONNECTION_RESET|CONNECTION_CLOSED|INTERNET_DISCONNECTED|ADDRESS_UNREACHABLE|TUNNEL_CONNECTION_FAILED)\b/;
 const BLACKBOARD_TIMEOUT = /(Timeout\s+\d+ms\s+exceeded|TimeoutError\b|page\.goto|navigating to "https?:[^"]+",\s*waiting until|waiting for navigation)/i;
 const NOTION_API = /(notion[^.]*api|HTTP\s+(?:401|403|404|409|429|5\d\d).*notion|\bunauthorized\b|\bforbidden\b|object_not_found)/i;
+// Specific Notion error fired when an uploaded file exceeds the workspace's
+// per-file size limit (5 MiB on Free; 5 GiB on Plus / Business / Education /
+// Enterprise). Surfaced as a distinct category so we can hint the user
+// towards the paid-plan switch instead of the generic "API rejected" message.
+const NOTION_FILE_SIZE = /(file_upload_invalid_size|file size is not within the allowed limit of \d+\s*(MiB|GiB|MB|GB))/i;
 const FILESYSTEM = /\b(ENOENT|EACCES|EPERM|ENOTDIR|EISDIR)\b/;
 const NETWORK = /\b(ECONNREFUSED|ENETUNREACH|ETIMEDOUT|EAI_AGAIN|getaddrinfo|fetch failed|Failed to fetch|NetworkError)\b/i;
 const PROCESS_CRASH = /Job failed with code/;
@@ -53,6 +58,11 @@ const PATTERNS: ReadonlyArray<Pattern> = [
     test: (raw, log) => BLACKBOARD_TIMEOUT.test(raw) || BLACKBOARD_TIMEOUT.test(log),
     titleKey: "error.blackboard.unreachable",
     hintKey: "error.blackboard.unreachable.hint",
+  },
+  {
+    test: (raw, log) => NOTION_FILE_SIZE.test(raw) || NOTION_FILE_SIZE.test(log),
+    titleKey: "error.notion.fileSize",
+    hintKey: "error.notion.fileSize.hint",
   },
   {
     test: (raw, _log) => NOTION_API.test(raw),

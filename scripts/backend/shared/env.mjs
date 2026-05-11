@@ -75,3 +75,16 @@ export function configuredNotionMediaWidthRatio() {
     Math.max(NOTION_MEDIA_WIDTH_RATIO_MIN, value),
   );
 }
+
+/**
+ * Hard cap that Notion enforces per file upload on Free workspaces (5 MiB,
+ * the binary megabyte — Notion's own number). Paid workspaces (Plus,
+ * Business, Education, Enterprise) get 5 GiB. The UI surfaces a single
+ * toggle: "I have Notion Plus / Business / Education" → we set
+ * NOTION_PAID_PLAN=1 and skip the pre-upload filter entirely.
+ */
+export const NOTION_FREE_TIER_FILE_LIMIT = 5 * 1024 * 1024;
+
+export function hasNotionPaidPlan() {
+  return (process.env.NOTION_PAID_PLAN || "").trim() === "1";
+}

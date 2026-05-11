@@ -8,7 +8,10 @@ import {
   exportScormMarkdown,
   launchPersistentContext,
 } from "../scorm/markdown-exporter.mjs";
-import { configuredCourseOutlineUrl } from "../shared/env.mjs";
+import {
+  configuredCourseOutlineUrl,
+  hasNotionPaidPlan,
+} from "../shared/env.mjs";
 import {
   NOTION_ASSET_MANIFEST_PATH,
   SCORM_EXPORT_MANIFEST_PATH,
@@ -34,7 +37,11 @@ import {
   trashNotionPage,
 } from "./client.mjs";
 import { logProgress } from "./progress.mjs";
-import { MULTI_PART_SIZE, uploadAssets } from "./uploads.mjs";
+import {
+  markAssetsExceedingFreeLimit,
+  MULTI_PART_SIZE,
+  uploadAssets,
+} from "./uploads.mjs";
 
 // API contract with Notion. Bumped only when the SDK / API requires it; not a
 // user-configurable knob, so this lives in code instead of `.env`.
@@ -123,7 +130,10 @@ function assertPublishConfig() {
 }
 
 function assertAssetsReadyForPublish(assets) {
-  const failedAssets = assets.filter((asset) => asset.status !== "downloaded");
+  const failedAssets = assets.filter(
+    (asset) =>
+      asset.status !== "downloaded" && asset.uploadStatus !== "skipped_size_limit",
+  );
   if (failedAssets.length > 0) {
     throw new Error(
       `Cannot publish: ${failedAssets.length} assets failed to download. First failed asset: ${
@@ -135,14 +145,23 @@ function assertAssetsReadyForPublish(assets) {
 
 function summarize(mode, scormExport, assets, blocks, extra = {}) {
   const downloaded = assets.filter((asset) => asset.status === "downloaded");
-  const failed = assets.filter((asset) => asset.status !== "downloaded");
+  const failed = assets.filter(
+    (asset) =>
+      asset.status !== "downloaded" && asset.uploadStatus !== "skipped_size_limit",
+  );
   const images = assets.filter((asset) => asset.kind === "image");
   const videos = assets.filter((asset) => asset.kind === "video");
   const uploaded = assets.filter((asset) => asset.uploadStatus === "uploaded");
   const reusedUploads = assets.filter((asset) => asset.uploadStatus === "reused");
   const failedUploads = assets.filter((asset) => asset.uploadStatus === "upload_failed");
-  const totalBytes = downloaded.reduce((sum, asset) => sum + asset.size, 0);
-  const uploadChunks = downloaded.reduce(
+  const skippedUploads = assets.filter(
+    (asset) => asset.uploadStatus === "skipped_size_limit",
+  );
+  const uploadable = downloaded.filter(
+    (asset) => asset.uploadStatus !== "skipped_size_limit",
+  );
+  const totalBytes = uploadable.reduce((sum, asset) => sum + asset.size, 0);
+  const uploadChunks = uploadable.reduce(
     (sum, asset) => sum + Math.max(1, Math.ceil(asset.size / MULTI_PART_SIZE)),
     0,
   );
@@ -164,10 +183,12 @@ function summarize(mode, scormExport, assets, blocks, extra = {}) {
     uploadedAssets: uploaded.length,
     reusedUploads: reusedUploads.length,
     failedUploads: failedUploads.length,
+    skippedUploads: skippedUploads.length,
     totalAssetBytes: totalBytes,
     uploadChunks,
     notionVersion: NOTION_VERSION,
     notionMediaWidthRatio: NOTION_MEDIA_WIDTH_RATIO,
+    notionPaidPlan: hasNotionPaidPlan(),
     ...extra,
   };
 }
@@ -214,6 +235,21 @@ async function main() {
     }
   } else {
     await writeAssetManifest(scormExport, assets);
+  }
+
+  // If the user has not flipped the "Notion paid plan" switch we filter out
+  // anything over the 5 MiB Free-tier limit before touching the API. Notion
+  // would otherwise return file_upload_invalid_size mid-run and fail the job.
+  if (!hasNotionPaidPlan()) {
+    const skippedNow = markAssetsExceedingFreeLimit(assets);
+    if (skippedNow > 0) {
+      logProgress(
+        `Skipped ${skippedNow} asset(s) over 5 MiB to respect the Notion Free plan limit. Enable "Tengo Notion Plus / Business / Education" in Ajustes to upload them.`,
+      );
+      await writeAssetManifest(scormExport, assets);
+    }
+  } else {
+    logProgress("Notion paid plan mode: skipping pre-upload size filter.");
   }
 
   const assetsBySource = assetMapBySource(assets);

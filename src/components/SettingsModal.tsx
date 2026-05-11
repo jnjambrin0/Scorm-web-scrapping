@@ -139,15 +139,23 @@ export function SettingsModal({
           <SectionDivider />
 
           <SectionLabel>{t("settings.section.notion")}</SectionLabel>
-          <Slider
-            label={t("settings.notion.mediaWidthRatio.label")}
-            hint={t("settings.notion.mediaWidthRatio.hint")}
-            min={MEDIA_WIDTH_RATIO_MIN}
-            max={MEDIA_WIDTH_RATIO_MAX}
-            step={MEDIA_WIDTH_RATIO_STEP}
-            value={settings.notion.mediaWidthRatio}
-            onChange={(v) => update("notion", { mediaWidthRatio: v })}
-          />
+          <div className="grid gap-4">
+            <Switch
+              label={t("settings.notion.paidPlan.label")}
+              hint={t("settings.notion.paidPlan.hint")}
+              checked={settings.notion.paidPlan}
+              onChange={(v) => update("notion", { paidPlan: v })}
+            />
+            <Slider
+              label={t("settings.notion.mediaWidthRatio.label")}
+              hint={t("settings.notion.mediaWidthRatio.hint")}
+              min={MEDIA_WIDTH_RATIO_MIN}
+              max={MEDIA_WIDTH_RATIO_MAX}
+              step={MEDIA_WIDTH_RATIO_STEP}
+              value={settings.notion.mediaWidthRatio}
+              onChange={(v) => update("notion", { mediaWidthRatio: v })}
+            />
+          </div>
 
           <SectionDivider />
 

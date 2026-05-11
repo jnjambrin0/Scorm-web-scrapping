@@ -82,6 +82,7 @@ export default function App() {
     };
     if (NOTION_COMMANDS.has(command)) {
       envOverrides.NOTION_MEDIA_WIDTH_RATIO = String(settings.notion.mediaWidthRatio);
+      envOverrides.NOTION_PAID_PLAN = settings.notion.paidPlan ? "1" : "0";
     }
     job.start({
       command,

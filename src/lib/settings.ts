@@ -14,6 +14,12 @@ export interface Settings {
   notion: {
     /** Width applied to embedded images/videos in Notion. Clamp 0.5 — 1.0. */
     mediaWidthRatio: number;
+    /**
+     * `true` ⇒ user declares the workspace is on a paid plan (Plus / Business
+     * / Education / Enterprise) and the 5 MiB Free-tier cap doesn't apply.
+     * `false` (default) ⇒ filter out anything over 5 MiB before uploading.
+     */
+    paidPlan: boolean;
   };
 }
 
@@ -26,6 +32,7 @@ export const DEFAULT_SETTINGS: Settings = {
   },
   notion: {
     mediaWidthRatio: 0.85,
+    paidPlan: false,
   },
 };
 
@@ -96,6 +103,10 @@ export function loadSettings(): Settings {
       mediaWidthRatio: clampMediaWidthRatio(
         (notionRaw as Settings["notion"]).mediaWidthRatio,
       ),
+      paidPlan: pickBoolean(
+        (notionRaw as Settings["notion"]).paidPlan,
+        DEFAULT_SETTINGS.notion.paidPlan,
+      ),
     },
   };
 }
@@ -122,6 +133,7 @@ export function sanitizeSettings(value: Settings): Settings {
     },
     notion: {
       mediaWidthRatio: clampMediaWidthRatio(value.notion.mediaWidthRatio),
+      paidPlan: value.notion.paidPlan,
     },
   };
 }
