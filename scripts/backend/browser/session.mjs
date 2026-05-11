@@ -41,32 +41,54 @@ export async function openBlackboard({ mode }) {
   });
 }
 
+// Blackboard Ultra issues `s_session_id` (TLS-protected, the canonical session
+// marker on https deployments) and may also set `session_id` or `JSESSIONID`
+// on legacy paths. Any non-empty, unexpired cookie from this set means the
+// previous `npm run login` left usable credentials in the persistent profile.
+const SESSION_COOKIE_NAMES = new Set([
+  "s_session_id",
+  "session_id",
+  "JSESSIONID",
+]);
+
 export async function checkSession() {
   const baseUrl = requireBlackboardBaseUrl();
-  // Headless: this probe doesn't need user interaction. Cookies live in the
-  // persistent profile, so the saved session from a prior `npm run login`
-  // (which had to be headed for the user to type credentials) is reused here.
+
+  // We deliberately do NOT navigate to Blackboard. Institutions that enable
+  // Concurrent Session Control (Admin > Security > Account Lock Settings)
+  // evict the oldest active session as soon as a *new* one checks in — so a
+  // single `page.goto(baseUrl)` from this automation logs the user out of
+  // their personal Chrome, mobile app, and every other device. Instead, we
+  // read the cookie jar locally: `context.cookies(urls)` is a pure in-memory
+  // read from the persistent profile and never sends HTTP traffic to
+  // Blackboard. The trade-off is that we can't catch a server-side
+  // invalidation (revoked cookie, admin force-logout); in those cases the
+  // next Publish/Export will surface `session.expired` via the existing
+  // error classifier, which is good enough.
   const context = await launchPersistentContext({ headless: true });
-  const page = context.pages()[0] || (await context.newPage());
+  try {
+    const cookies = await context.cookies(baseUrl);
+    const now = Math.floor(Date.now() / 1000);
+    const session = cookies.find(
+      (cookie) =>
+        SESSION_COOKIE_NAMES.has(cookie.name) &&
+        cookie.value !== "" &&
+        // Playwright reports session cookies (no Expires attribute) as -1.
+        // The persistent profile keeps them across launches, so we treat
+        // them as valid when the value is present.
+        (cookie.expires === -1 || cookie.expires > now),
+    );
 
-  await page.goto(baseUrl, { waitUntil: "domcontentloaded" });
-  await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
+    console.log(`Profile dir: ${browserProfileDir()}`);
+    console.log(`Base URL: ${baseUrl}`);
+    console.log(`Stored cookies for domain: ${cookies.length}`);
+    console.log(`Authenticated: ${session ? "probably yes" : "no"}`);
 
-  const title = await page.title();
-  const url = page.url();
-  const loginLike =
-    url.includes("login.microsoftonline.com") ||
-    title.toLowerCase().includes("sign in");
-
-  console.log(`Profile dir: ${browserProfileDir()}`);
-  console.log(`Title: ${title}`);
-  console.log(`URL: ${url}`);
-  console.log(`Authenticated: ${loginLike ? "no" : "probably yes"}`);
-
-  await context.close();
-
-  if (loginLike) {
-    process.exitCode = 1;
+    if (!session) {
+      process.exitCode = 1;
+    }
+  } finally {
+    await context.close();
   }
 }
 
