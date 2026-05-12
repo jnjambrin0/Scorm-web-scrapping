@@ -261,6 +261,23 @@ Rise puede representar listas con HTML no canonico, iconos, labels o divs
 intermedios. Hay que tomar el contenido desde `.block-list__content` y descartar
 `.block-list__number` y `.block-list__bullet`.
 
+Algunas unidades antiguas no usan `<ul>/<li>` ni `.block-list`: guardan cada
+item como un `<p>` con margen izquierdo y el caracter visual `•` dentro de
+spans separados. Esos grupos deben convertirse a Markdown `- item` por
+estructura (bullet inicial + indentacion), no por textos de una unidad concreta.
+
+### Codigo y Gherkin
+
+Los bloques `.block-text--code` incluyen un boton/tooltip de copiar. El
+contenido real debe leerse solo desde `pre.block-text__code`; textos de UI como
+`Copy` o `Copied!` no son contenido.
+
+Las secuencias de ejemplo con `Feature`, `Scenario`, `Como`, `Quiero`, `Para`,
+`Given`, `When`, `Then`, `And`, `But`, `Examples` o filas de tabla Gherkin deben
+agruparse como bloque de codigo `gherkin` cuando el DOM las presenta como
+parrafos consecutivos. No convertir definiciones narrativas sueltas como
+`Given: contexto...`.
+
 ### Imagenes
 
 Las imagenes pueden aparecer como `<img src="assets/...">` o como fondos CSS.
@@ -316,6 +333,7 @@ Luego buscar patrones de fallo:
 
 ```bash
 rg -n "Click to flip|\\(opens in a new tab\\)|1Comprender|\\.•|^- [123]$" exports -S
+rg -n "^(Copy|Copied!)$|^•\\s" exports/*.md -S
 rg -n "^(START|¡Comenzamos!|¡Vamos allá!)$" exports -S
 rg -n "^### .{140,}" exports -S
 rg -n "AprenderMasLogo|ImportanteLogo|Recuerda1Logo|stock-image" exports/*.md -S

@@ -33,6 +33,9 @@ export function renderRiseLessonInBrowser() {
     ".flashcard-side-flip",
     ".block-list__number",
     ".block-list__bullet",
+    ".block-text__copy-button",
+    "[arc-tooltip]",
+    "[arc-popover]",
   ].join(",");
 
   const stripUiText = (value) =>
@@ -122,16 +125,314 @@ export function renderRiseLessonInBrowser() {
       className.includes("flashcard-side-flip") ||
       className.includes("block-list__number") ||
       className.includes("block-list__bullet") ||
+      className.includes("block-text__copy-button") ||
       /^Zoom image$/i.test(aria)
     );
   };
 
-  const directChildrenMarkdown = (element) =>
-    [...element.childNodes]
-      .map((child) => nodeToMarkdown(child))
-      .filter(Boolean)
-      .join("\n\n")
-      .trim();
+  const trimCodeText = (value) =>
+    (value || "")
+      .replace(/\u00a0/g, " ")
+      .replace(/\r/g, "")
+      .replace(/^\n+/, "")
+      .replace(/\n+$/, "");
+
+  const fencedBlock = (language, value) => {
+    const text = trimCodeText(value);
+    if (!text) {
+      return "";
+    }
+
+    const longestFence = Math.max(
+      2,
+      ...[...text.matchAll(/`{3,}/g)].map((match) => match[0].length),
+    );
+    const fence = "`".repeat(longestFence + 1);
+    return [`${fence}${language}`, text, fence].join("\n");
+  };
+
+  const renderCodeBlock = (element) => {
+    const code = element.querySelector(":scope pre.block-text__code") ||
+      element.querySelector(":scope pre");
+    return code ? fencedBlock("", code.textContent || "") : "";
+  };
+
+  const isParagraph = (node) =>
+    node instanceof Element && node.tagName === "P" && !isSkippable(node);
+
+  const paragraphIndent = (paragraph) => {
+    const style = paragraph.getAttribute("style") || "";
+    const inlineMatch = style.match(
+      /(?:margin|padding)-left\s*:\s*(-?\d+(?:\.\d+)?)(px|rem)/i,
+    );
+    if (inlineMatch) {
+      const value = Number(inlineMatch[1]);
+      return inlineMatch[2].toLowerCase() === "px" ? value / 16 : value;
+    }
+
+    const computed = Number.parseFloat(getComputedStyle(paragraph).marginLeft);
+    return Number.isFinite(computed) ? computed / 16 : 0;
+  };
+
+  const leadingInlineText = (element) => {
+    const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+    let current = walker.nextNode();
+    while (current) {
+      const text = normalize(current.textContent || "");
+      if (text) {
+        return text;
+      }
+      current = walker.nextNode();
+    }
+    return "";
+  };
+
+  const visualBulletPattern = /^[•◦‣∙●○▪▫]\s*(.+)$/;
+
+  const visualBulletInfo = (node) => {
+    if (!isParagraph(node) || node.closest("ul,ol,.block-list")) {
+      return null;
+    }
+
+    const text = inlineText(node);
+    const match = text.match(visualBulletPattern);
+    if (!match) {
+      return null;
+    }
+
+    const firstText = leadingInlineText(node);
+    const hasStructuralBullet = /^[•◦‣∙●○▪▫]$/.test(firstText);
+    const indent = paragraphIndent(node);
+    if (!hasStructuralBullet && indent <= 0) {
+      return null;
+    }
+
+    return {
+      text: match[1].trim(),
+      indent,
+    };
+  };
+
+  const renderVisualBulletGroup = (items) => {
+    const levels = [...new Set(items.map((item) => item.indent))]
+      .sort((a, b) => a - b)
+      .reduce((result, indent) => {
+        if (
+          result.length === 0 ||
+          Math.abs(indent - result[result.length - 1]) >= 0.75
+        ) {
+          result.push(indent);
+        }
+        return result;
+      }, []);
+
+    return items
+      .map((item) => {
+        const level = Math.max(
+          0,
+          levels.findIndex((indent) => Math.abs(indent - item.indent) < 0.75),
+        );
+        return `${"  ".repeat(level)}- ${item.text}`;
+      })
+      .join("\n");
+  };
+
+  const strongTexts = (element) =>
+    [...element.querySelectorAll("strong")]
+      .map((strong) => normalize(strong.textContent || ""))
+      .filter(Boolean);
+
+  const paragraphStyleHints = (paragraph) => {
+    const style = paragraph.getAttribute("style") || "";
+    return {
+      leftAligned: /text-align\s*:\s*left/i.test(style),
+      indented: paragraphIndent(paragraph) > 0,
+    };
+  };
+
+  const gherkinKeyword = (text) => {
+    const trimmed = normalize(text);
+    if (/^(Feature|Scenario|Scenario Outline|Examples)\s*:/i.test(trimmed)) {
+      return "section";
+    }
+    if (/^(Given|When|Then|And|But)\s+\S/i.test(trimmed)) {
+      return "step";
+    }
+    if (/^(Como|Quiero|Para)\s+\S/i.test(trimmed)) {
+      return "story";
+    }
+    if (/^#\S/.test(trimmed)) {
+      return "comment";
+    }
+    if (/^\|/.test(trimmed)) {
+      return "table";
+    }
+    return null;
+  };
+
+  const hasGherkinStrongKeyword = (paragraph) =>
+    strongTexts(paragraph).some((text) =>
+      /^(Feature:?|Scenario:?|Scenario Outline:?|Examples:?|Given|When|Then|And|But|Como|Quiero|Para)$/i.test(
+        text,
+      ),
+    );
+
+  const gherkinParagraphInfo = (node, inGroup = false) => {
+    if (!isParagraph(node)) {
+      return null;
+    }
+
+    const text = inlineText(node);
+    if (!text) {
+      return { blank: true };
+    }
+
+    const keyword = gherkinKeyword(text);
+    if (!keyword) {
+      return null;
+    }
+
+    if (keyword === "table") {
+      return inGroup ? { text, keyword } : null;
+    }
+
+    if (keyword === "comment") {
+      return inGroup ? { text, keyword } : null;
+    }
+
+    const hints = paragraphStyleHints(node);
+    const hasStrongKeyword = hasGherkinStrongKeyword(node);
+    if (keyword === "section") {
+      return hints.leftAligned || hints.indented || hasStrongKeyword
+        ? { text, keyword }
+        : null;
+    }
+
+    if (keyword === "step" || keyword === "story") {
+      return hints.leftAligned || hints.indented || hasStrongKeyword
+        ? { text, keyword }
+        : null;
+    }
+
+    return null;
+  };
+
+  const nextGherkinIndex = (nodes, startIndex, inGroup) => {
+    for (let index = startIndex; index < nodes.length; index += 1) {
+      const info = gherkinParagraphInfo(nodes[index], inGroup);
+      if (info?.blank) {
+        continue;
+      }
+      return info ? index : -1;
+    }
+    return -1;
+  };
+
+  const isValidGherkinGroup = (items) => {
+    const content = items.filter((item) => !item.blank);
+    if (content.length < 3) {
+      return false;
+    }
+
+    const keywords = new Set(content.map((item) => item.keyword));
+    const hasScenarioSyntax =
+      keywords.has("section") && (keywords.has("step") || keywords.has("table"));
+    const hasAcceptanceSteps = keywords.has("step");
+    const storyKeywords = new Set(
+      content
+        .map((item) => normalize(item.text).match(/^(Como|Quiero|Para)\b/i)?.[1])
+        .filter(Boolean)
+        .map((keyword) => keyword.toLowerCase()),
+    );
+    const hasUserStory =
+      storyKeywords.has("como") &&
+      storyKeywords.has("quiero") &&
+      storyKeywords.has("para");
+
+    return hasScenarioSyntax || hasAcceptanceSteps || hasUserStory;
+  };
+
+  const normalizeGherkinLine = (text) =>
+    normalize(text)
+      .replace(/^(Feature|Scenario|Scenario Outline|Examples)\s*:\s*/i, "$1: ")
+      .replace(/^(Given|When|Then|And|But|Como|Quiero|Para)\s+/i, "$1 ");
+
+  const renderGherkinGroup = (items) => {
+    const hasSection = items.some((item) => item.keyword === "section");
+    const text = items
+      .map((item) => {
+        if (item.blank) {
+          return "";
+        }
+
+        const line = normalizeGherkinLine(item.text);
+        const isSection = /^(Feature|Scenario|Scenario Outline|Examples)\s*:/i.test(
+          line,
+        );
+        return !hasSection || isSection
+          ? line
+          : `  ${line}`;
+      })
+      .join("\n")
+      .replace(/\n{3,}/g, "\n\n")
+      .replace(/^\n+/, "")
+      .replace(/\n+$/, "");
+
+    return fencedBlock("gherkin", text);
+  };
+
+  const directChildrenMarkdown = (element) => {
+    const nodes = [...element.childNodes];
+    const parts = [];
+
+    for (let index = 0; index < nodes.length; index += 1) {
+      const bullet = visualBulletInfo(nodes[index]);
+      if (bullet) {
+        const items = [];
+        while (index < nodes.length) {
+          const item = visualBulletInfo(nodes[index]);
+          if (!item) {
+            break;
+          }
+          items.push(item);
+          index += 1;
+        }
+        index -= 1;
+        parts.push(renderVisualBulletGroup(items));
+        continue;
+      }
+
+      const gherkin = gherkinParagraphInfo(nodes[index]);
+      if (gherkin && !gherkin.blank) {
+        const items = [];
+        let cursor = index;
+        while (cursor < nodes.length) {
+          const info = gherkinParagraphInfo(nodes[cursor], items.length > 0);
+          if (!info) {
+            break;
+          }
+          if (info.blank && nextGherkinIndex(nodes, cursor + 1, true) < 0) {
+            break;
+          }
+          items.push(info);
+          cursor += 1;
+        }
+
+        if (isValidGherkinGroup(items)) {
+          parts.push(renderGherkinGroup(items));
+          index = cursor - 1;
+          continue;
+        }
+      }
+
+      const markdown = nodeToMarkdown(nodes[index]);
+      if (markdown) {
+        parts.push(markdown);
+      }
+    }
+
+    return parts.join("\n\n").trim();
+  };
 
   const listItemText = (item) => {
     const nestedLists = [...item.querySelectorAll(":scope > ul, :scope > ol")];
@@ -385,6 +686,10 @@ export function renderRiseLessonInBrowser() {
     }
 
     const tag = node.tagName;
+    if (node.classList.contains("block-text--code")) {
+      return renderCodeBlock(node);
+    }
+
     if (node.classList.contains("blocks-tabs")) {
       return renderTabs(node);
     }
@@ -445,8 +750,7 @@ export function renderRiseLessonInBrowser() {
     }
 
     if (tag === "PRE") {
-      const text = normalize(node.textContent);
-      return text ? ["", "```", text, "```", ""].join("\n") : "";
+      return fencedBlock("", node.textContent || "");
     }
 
     if (tag === "CODE") {
