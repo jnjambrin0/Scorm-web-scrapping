@@ -3,6 +3,7 @@ import http from "node:http";
 import { DEFAULT_NOTION_PARENT_PAGE_TITLE } from "../shared/env.mjs";
 import {
   cancelJob,
+  browserJobRunning,
   configStatus,
   createJob,
   getJob,
@@ -60,6 +61,15 @@ async function handleApi(request, response, url) {
     const configIssue = validateCommandConfig(command);
     if (configIssue) {
       writeError(response, 400, configIssue.message);
+      return;
+    }
+
+    if (browserJobRunning()) {
+      writeError(
+        response,
+        409,
+        "Ya hay otro proceso usando el perfil de Blackboard. Cierra la otra ventana o espera a que termine y vuelve a intentarlo.",
+      );
       return;
     }
 

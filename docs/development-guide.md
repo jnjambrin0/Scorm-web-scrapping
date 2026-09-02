@@ -86,11 +86,21 @@ Comandos principales:
 npm run login
 npm run open
 npm run check-session
+npm run check-session -- --remote
+npm run reset-session -- --confirm
 ```
 
-Si la sesion caduca, se vuelve a ejecutar `npm run login`, el usuario inicia
-sesion manualmente y el perfil queda actualizado. No se debe copiar la sesion
-del Chrome personal del usuario ni pedir contrasenas.
+`npm run check-session` es una inspeccion local segura: informa si el perfil
+contiene datos, pero no confirma al servidor. `--remote` navega a Blackboard y
+es una accion explicita porque una institucion puede limitar sesiones
+concurrentes. Si la sesion caduca, se vuelve a ejecutar `npm run login`, el
+usuario inicia sesion manualmente y el perfil queda actualizado. No se debe
+copiar la sesion del Chrome personal del usuario ni pedir contrasenas.
+
+`reset-session --confirm` mueve el perfil a un backup fechado en vez de
+borrarlo. Deben estar cerradas todas las ventanas y procesos que usen el
+perfil. El reset solo elimina el estado local; no cierra la sesion del
+proveedor SSO en el servidor.
 
 ## Como esta estructurado Blackboard/SCORM
 
@@ -359,8 +369,10 @@ El script debe funcionar con cualquier tema SCORM/Rise similar. Por tanto:
 - no hardcodear IDs de curso, leccion, bloque o asset;
 - no hardcodear textos de la unidad salvo filtros exactos aprobados;
 - parametrizar `COURSE_OUTLINE_URL`, `SCORM_TITLE` y `SCORM_MARKDOWN_OUT`;
-- preferir una URL directa de `outline/scorm/overview/...` cuando este
-  disponible. En ese caso `SCORM_TITLE` es opcional y se infiere desde el SCORM.
+- aceptar las variantes de URL `outline/scorm/overview/...`,
+  `scorm/overview/...` y `grades/scorm/overview/...`; la identidad estable se
+  basa en `courseId` e `itemId`. En esos casos `SCORM_TITLE` es opcional y se
+  infiere desde el SCORM.
   Si `COURSE_OUTLINE_URL` apunta al outline del curso, entonces `SCORM_TITLE`
   sigue siendo necesario para localizar el item visible en Blackboard;
 - derivar nombres de salida desde el titulo;
@@ -464,6 +476,8 @@ Si hace falta diagnosticar credenciales, usar checks booleanos:
 ## Decisiones de diseno que conviene mantener
 
 - Separar scripts de login/apertura/exportacion para poder depurar cada capa.
+- Mantener `open-scorm` como observador de `openScorm()`; no duplicar su
+  navegacion, clasificación de URL ni manejo de popups en el depurador.
 - Mantener raw HTML por leccion para investigar regresiones.
 - Hacer renderizadores por componente antes que regex sobre todo el Markdown.
 - Aplicar postprocesado solo para reglas globales muy claras.
@@ -475,6 +489,23 @@ Si hace falta diagnosticar credenciales, usar checks booleanos:
 ### La sesion caduca
 
 Ejecutar `npm run login` y volver a iniciar sesion manualmente. No tocar tokens.
+
+Si el perfil local esta atascado, ejecutar `npm run reset-session -- --confirm`
+y despues `npm run login`. El backup no debe borrarse hasta confirmar que el
+nuevo perfil funciona.
+
+### El perfil de navegador esta en uso
+
+Playwright no admite dos instancias con el mismo perfil persistente. Cerrar
+otra ejecucion de `login`, `check-session`, `open-scorm` o exportacion antes de
+reintentar. El bloqueo local evita que dos jobs de la app se pisen.
+
+### La caché de SCORM falla
+
+El loader diferencia manifest ausente, JSON invalido, Markdown ausente y
+fuente distinta. Las nuevas exportaciones se escriben en staging y solo se
+promueven cuando el overview contiene lecciones; un fallo no debe borrar la
+ultima exportacion valida.
 
 ### Blackboard muestra un modal de sesion concurrente
 
@@ -530,7 +561,6 @@ Despues de tocar codigo:
 
 Pendientes principales:
 
-- anadir validaciones automatizadas basicas para patrones de Markdown roto.
 - ampliar cobertura de componentes Notion si aparecen nuevos patrones Markdown
   fuera de headings, parrafos, listas, enlaces, imagenes, videos, files, codigo,
   quotes y tablas.

@@ -26,6 +26,7 @@ interface Props {
 type LabelKey =
   | "session.notVerified"
   | "session.checking"
+  | "session.stored"
   | "session.verified"
   | "session.signIn"
   | "session.error";
@@ -48,6 +49,12 @@ const VISUAL: Record<SessionCheckStatus, Visual> = {
     dot: "bg-accent animate-pulse-subtle",
     labelKey: "session.checking",
     container: "surface",
+    showRefreshIcon: true,
+  },
+  stored: {
+    dot: "bg-warning",
+    labelKey: "session.stored",
+    container: "surface-tint-warning",
     showRefreshIcon: true,
   },
   verified: {
@@ -135,6 +142,8 @@ function pickActionIcon(status: SessionCheckStatus) {
     case "idle":
       return ShieldQuestion;
     case "verified":
+      return RefreshCw;
+    case "stored":
       return RefreshCw;
     case "checking":
     default:

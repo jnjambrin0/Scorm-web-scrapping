@@ -9,6 +9,13 @@ import { ROOT } from "../shared/paths.mjs";
 import { sanitizeText } from "../shared/text.mjs";
 
 const EVENT_HISTORY_LIMIT = 1000;
+const BROWSER_COMMANDS = new Set([
+  "check-session",
+  "export-md",
+  "login",
+  "notion-dry-run",
+  "notion-publish",
+]);
 
 // Lines that look like errors but are just noise from the runtime. We strip
 // them before picking the "last line" as the user-facing error message so a
@@ -118,6 +125,12 @@ export function runningJobs() {
   return [...jobs.values()].filter((job) => job.status === "running");
 }
 
+export function browserJobRunning(jobList = runningJobs()) {
+  return jobList.some(
+    (job) => job.status === "running" && BROWSER_COMMANDS.has(job.command),
+  );
+}
+
 export function normalizeEnvOverrides(value) {
   const input = value && typeof value === "object" ? value : {};
   const result = {};
@@ -145,12 +158,17 @@ export function normalizeFlags(value) {
   return {
     refresh: Boolean(input.refresh),
     deleteAfter: Boolean(input.deleteAfter),
+    remote: Boolean(input.remote),
   };
 }
 
 function commandArgs(command, flags) {
   if (command === "check-session") {
-    return ["scripts/blackboard-browser.mjs", "check-session"];
+    return [
+      "scripts/blackboard-browser.mjs",
+      "check-session",
+      ...(flags.remote ? ["--remote"] : []),
+    ];
   }
   if (command === "login") {
     return ["scripts/blackboard-browser.mjs", "login"];

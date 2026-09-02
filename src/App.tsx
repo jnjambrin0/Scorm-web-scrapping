@@ -7,6 +7,7 @@ import { useDefaultsBootstrap } from "./hooks/useDefaultsBootstrap";
 import { useSessionCheck } from "./hooks/useSessionCheck";
 import { useLogin } from "./hooks/useLogin";
 import { useSettings } from "./hooks/useSettings";
+import { classifyJobError } from "./lib/errors";
 import { TopBar } from "./components/TopBar";
 import { Card } from "./components/Card";
 import { JobPanel } from "./components/JobPanel";
@@ -28,10 +29,20 @@ export default function App() {
   const form = useFormState(settings.formDefaults);
   const bootstrap = useDefaultsBootstrap();
   const session = useSessionCheck();
-  const login = useLogin({ onCompleted: () => session.run() });
+  const login = useLogin({
+    onCompleted: (finishedJob) => {
+      if (finishedJob.status === "success" && finishedJob.summary?.reachedBlackboard) {
+        session.markVerified();
+      } else {
+        session.run("local");
+      }
+    },
+  });
 
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [sessionGuardVisible, setSessionGuardVisible] = useState(false);
   const autoCheckFiredRef = useRef(false);
+  const invalidatedJobRef = useRef<string | null>(null);
 
   const config = bootstrap.defaults?.config ?? null;
   const isMissingNotionKey = config ? !config.hasNotionApiKey : false;
@@ -45,11 +56,12 @@ export default function App() {
     if (autoCheckFiredRef.current) return;
     if (bootstrap.status !== "ready") return;
     if (!job.bootstrapped) return;
+    if (job.status === "running") return;
     if (session.status !== "idle") return;
     if (isMissingBlackboardBase) return;
     autoCheckFiredRef.current = true;
     session.run();
-  }, [bootstrap.status, job.bootstrapped, session, isMissingBlackboardBase]);
+  }, [bootstrap.status, job.bootstrapped, job.status, session, isMissingBlackboardBase]);
 
   // Settings is the single source of truth for form defaults. Whenever the
   // user edits a default in the Settings modal, propagate it into the live
@@ -64,7 +76,29 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settings.formDefaults]);
 
+  useEffect(() => {
+    if (
+      job.status !== "failed" ||
+      !job.job?.id ||
+      !job.command ||
+      SESSION_COMMANDS.has(job.command) ||
+      invalidatedJobRef.current === job.job.id
+    ) {
+      return;
+    }
+
+    const classified = classifyJobError(job.error, job.command, job.logs);
+    if (!classified.isAuthIssue) return;
+    invalidatedJobRef.current = job.job.id;
+    session.markUnauthenticated(classified);
+  }, [job.status, job.job?.id, job.command, job.error, job.logs, session.markUnauthenticated]);
+
   function startCommand(command: Command) {
+    if (!SESSION_COMMANDS.has(command) && session.status !== "verified") {
+      setSessionGuardVisible(true);
+      return;
+    }
+
     if (command !== "check-session") {
       const result = form.validate();
       if (!result.ok && result.firstErrorKey) {
@@ -102,6 +136,15 @@ export default function App() {
     job.status !== "idle";
 
   const sessionErrorToastVisible = session.status === "error" && !!session.classifiedError;
+  const loginClassifiedError = login.error
+    ? classifyJobError(login.error, "login", [])
+    : null;
+
+  function requestRemoteSessionCheck() {
+    if (!window.confirm(t("session.remoteVerify.confirm"))) return;
+    setSessionGuardVisible(false);
+    session.run("remote");
+  }
 
   return (
     <main className="min-h-screen px-4 pb-12 pt-3 text-ink sm:px-6 lg:px-8">
@@ -180,6 +223,8 @@ export default function App() {
           disabled={isAnythingBusy}
           loadingCommand={isJobRunning ? job.command : null}
           onExportMd={() => startCommand("export-md")}
+          onVerifySession={requestRemoteSessionCheck}
+          sessionBusy={session.busy}
         />
       </div>
 
@@ -198,6 +243,24 @@ export default function App() {
           title={t("login.waiting.title")}
           description={t("login.waiting.body")}
           action={{ label: t("login.cancel"), onClick: () => login.cancel() }}
+          autoDismissMs={0}
+        />
+      ) : login.error && loginClassifiedError ? (
+        <Toast
+          tone="warning"
+          title={t(loginClassifiedError.titleKey)}
+          description={t(loginClassifiedError.hintKey)}
+          technicalDetails={loginClassifiedError.technicalDetails ?? undefined}
+          onClose={() => login.dismissError()}
+          autoDismissMs={0}
+        />
+      ) : sessionGuardVisible ? (
+        <Toast
+          tone="warning"
+          title={t("session.remoteVerify")}
+          description={t("session.remoteVerify.detail")}
+          action={{ label: t("session.remoteVerify"), onClick: requestRemoteSessionCheck }}
+          onClose={() => setSessionGuardVisible(false)}
           autoDismissMs={0}
         />
       ) : sessionErrorToastVisible && session.classifiedError ? (

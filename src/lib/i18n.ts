@@ -12,6 +12,7 @@ export const STRINGS = {
   "session.unauth":     { es: "No autenticada",                                 en: "Not authenticated" },
   "session.unknown":    { es: "Sin verificar",                                  en: "Not checked" },
   "session.checking":   { es: "Verificando…",                                   en: "Checking…" },
+  "session.stored":     { es: "Perfil guardado · sin confirmar",                en: "Profile stored · unconfirmed" },
   "session.refresh":    { es: "Verificar sesión",                               en: "Check session" },
   "session.minutesAgo": { es: "hace {n} min",                                   en: "{n} min ago" },
   "session.justNow":    { es: "ahora mismo",                                    en: "just now" },
@@ -235,6 +236,21 @@ export const STRINGS = {
   "error.generic":               { es: "El trabajo no ha terminado",                   en: "The job did not finish" },
   "error.generic.hint":          { es: "Mira los detalles técnicos o reintenta cuando estés listo.",
                                    en: "Check technical details or retry when ready." },
+  "error.profile.busy":           { es: "El perfil de Blackboard está en uso",           en: "The Blackboard profile is busy" },
+  "error.profile.busy.hint":      { es: "Cierra la otra ventana o proceso de Blackboard y vuelve a intentarlo.",
+                                    en: "Close the other Blackboard window or process and try again." },
+  "error.scorm.url":              { es: "La URL SCORM no ha abierto la unidad",           en: "The SCORM URL did not open the unit" },
+  "error.scorm.url.hint":         { es: "Comprueba que la URL pertenece a ese curso y que la sesión remota está confirmada.",
+                                    en: "Check that the URL belongs to that course and that the remote session is confirmed." },
+  "error.scorm.item":             { es: "No se ha encontrado el SCORM en el curso",      en: "The SCORM item was not found in the course" },
+  "error.scorm.item.hint":        { es: "Blackboard ha acabado en otra página o ha cambiado el enlace. Copia de nuevo la URL del SCORM y reintenta.",
+                                    en: "Blackboard ended on another page or changed the link. Copy the SCORM URL again and retry." },
+  "error.cache.invalid":          { es: "La caché de SCORM no es válida",                en: "The SCORM cache is invalid" },
+  "error.cache.invalid.hint":     { es: "La caché se volverá a generar sin borrar una exportación anterior válida.",
+                                    en: "The cache will be regenerated without deleting a previous valid export." },
+  "error.login.incomplete":       { es: "El inicio de sesión no ha terminado",            en: "Sign-in did not finish" },
+  "error.login.incomplete.hint":  { es: "La ventana se cerró antes de llegar a Blackboard. Vuelve a iniciar sesión y espera a que cargue el curso.",
+                                    en: "The window closed before reaching Blackboard. Sign in again and wait for the course to load." },
 
   // Result card affordances
   "result.showDetails":          { es: "Mostrar detalles técnicos",                    en: "Show technical details" },
@@ -244,12 +260,18 @@ export const STRINGS = {
   "session.signIn":              { es: "Inicia sesión en Blackboard",                  en: "Sign in to Blackboard" },
   "session.notVerified":         { es: "Sin verificar",                                en: "Not verified" },
   "session.error":               { es: "No se pudo verificar la sesión",               en: "Couldn't verify the session" },
+  "session.remoteVerify":        { es: "Verificar en Blackboard",                      en: "Verify on Blackboard" },
+  "session.remoteVerify.detail": { es: "Comprueba el servidor. Puede afectar al límite de sesiones concurrentes.",
+                                    en: "Checks the server. It may affect the concurrent-session limit." },
+  "session.remoteVerify.confirm": { es: "Esta comprobación abrirá Blackboard y puede cerrar otra sesión si tu institución limita los dispositivos. ¿Continuar?",
+                                     en: "This check opens Blackboard and may end another session if your institution limits devices. Continue?" },
 
   // Login flow toast
   "login.waiting.title":         { es: "Esperando inicio de sesión…",                  en: "Waiting for sign-in…" },
   "login.waiting.body":          { es: "Se ha abierto una ventana de navegador. Inicia sesión en Blackboard y ciérrala cuando termines.",
                                    en: "A browser window opened. Sign in to Blackboard and close it when you're done." },
   "login.cancel":                { es: "Cancelar",                                     en: "Cancel" },
+  "login.failure.title":         { es: "No se pudo completar el inicio de sesión",       en: "Sign-in could not be completed" },
 
   // Section labels in the publish form
   "section.source":              { es: "Origen",                                       en: "Source" },

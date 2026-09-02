@@ -35,9 +35,24 @@ const NOTION_API = /(notion[^.]*api|HTTP\s+(?:401|403|404|409|429|5\d\d).*notion
 const NOTION_FILE_SIZE = /(file_upload_invalid_size|file size is not within the allowed limit of \d+\s*(MiB|GiB|MB|GB))/i;
 const FILESYSTEM = /\b(ENOENT|EACCES|EPERM|ENOTDIR|EISDIR)\b/;
 const NETWORK = /\b(ECONNREFUSED|ENETUNREACH|ETIMEDOUT|EAI_AGAIN|getaddrinfo|fetch failed|Failed to fetch|NetworkError)\b/i;
+const PROFILE_BUSY = /(BROWSER_PROFILE_BUSY|Browser profile is already in use|perfil de Blackboard está en uso|perfil.*en uso)/i;
+const LOGIN_INCOMPLETE = /Login window closed before reaching Blackboard|inicio de sesión.*no ha terminado|closed before reaching Blackboard/i;
+const SCORM_ITEM = /Could not find SCORM item|Could not find course link/i;
+const SCORM_URL = /SCORM URL did not resolve|Could not find Start\/Continue attempt control|staged cache was not promoted/i;
+const CACHE_INVALID = /Cache status: (?:manifest-missing|manifest-invalid|markdown-missing|source-mismatch)/i;
 const PROCESS_CRASH = /Job failed with code/;
 
 const PATTERNS: ReadonlyArray<Pattern> = [
+  {
+    test: (raw, log) => PROFILE_BUSY.test(raw) || PROFILE_BUSY.test(log),
+    titleKey: "error.profile.busy",
+    hintKey: "error.profile.busy.hint",
+  },
+  {
+    test: (raw, log) => LOGIN_INCOMPLETE.test(raw) || LOGIN_INCOMPLETE.test(log),
+    titleKey: "error.login.incomplete",
+    hintKey: "error.login.incomplete.hint",
+  },
   {
     test: (raw, _log) => PLAYWRIGHT_MISSING.test(raw),
     titleKey: "error.playwright.missing",
@@ -68,6 +83,21 @@ const PATTERNS: ReadonlyArray<Pattern> = [
     test: (raw, _log) => NOTION_API.test(raw),
     titleKey: "error.notion.api",
     hintKey: "error.notion.api.hint",
+  },
+  {
+    test: (raw, log) => SCORM_ITEM.test(raw) || SCORM_ITEM.test(log),
+    titleKey: "error.scorm.item",
+    hintKey: "error.scorm.item.hint",
+  },
+  {
+    test: (raw, log) => SCORM_URL.test(raw) || SCORM_URL.test(log),
+    titleKey: "error.scorm.url",
+    hintKey: "error.scorm.url.hint",
+  },
+  {
+    test: (raw, log) => CACHE_INVALID.test(raw) || CACHE_INVALID.test(log),
+    titleKey: "error.cache.invalid",
+    hintKey: "error.cache.invalid.hint",
   },
   {
     test: (raw, _log) => FILESYSTEM.test(raw),

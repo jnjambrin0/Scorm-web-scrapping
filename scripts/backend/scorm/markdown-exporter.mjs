@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -8,9 +9,12 @@ import {
   EXPORT_DIR,
   NOTION_ASSET_DIR,
   RAW_EXPORT_DIR,
+  ROOT,
   SCORM_EXPORT_MANIFEST_PATH as EXPORT_MANIFEST_PATH,
 } from "../shared/paths.mjs";
 import { safeFilename } from "../shared/text.mjs";
+import { canonicalScormIdentity } from "./urls.mjs";
+import { promoteStagedExport } from "../notion/cache.mjs";
 import { activateNonNavigationControls, scrollWholeLesson } from "./lesson-actions.mjs";
 import { openScorm, waitForFrame } from "./navigation.mjs";
 import { readOverview, readScormPageTitle } from "./overview.mjs";
@@ -58,7 +62,22 @@ export function postProcessMarkdown(markdown) {
   );
 }
 
-export async function exportScormMarkdown(options = {}) {
+export function portableManifestPath(value, root = ROOT) {
+  const relative = path.relative(root, path.resolve(value));
+  if (relative.startsWith("..") || path.isAbsolute(relative)) {
+    return path.resolve(value);
+  }
+  return relative.split(path.sep).join("/");
+}
+
+function resolveManifestPath(value) {
+  if (typeof value !== "string" || !value) return null;
+  return path.isAbsolute(value)
+    ? value
+    : path.resolve(ROOT, value);
+}
+
+async function exportScormMarkdownFromPaths(options = {}) {
   const {
     context: providedContext,
     outPath = OUT_PATH,
@@ -136,6 +155,7 @@ export async function exportScormMarkdown(options = {}) {
     const summary = {
       title: exportTitle,
       courseOutlineUrl: configuredCourseOutlineUrl(),
+      sourceIdentity: canonicalScormIdentity(configuredCourseOutlineUrl()),
       outPath: outputPath,
       rawDir: rawExportDir,
       exportManifestPath,
@@ -147,7 +167,25 @@ export async function exportScormMarkdown(options = {}) {
       ...summary,
       lessons,
     };
-    await fs.writeFile(exportManifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+    await fs.writeFile(
+      exportManifestPath,
+      `${JSON.stringify(
+        {
+          ...manifest,
+          outPath: portableManifestPath(outputPath),
+          rawDir: portableManifestPath(rawExportDir),
+          exportManifestPath: portableManifestPath(exportManifestPath),
+          lessons: lessons.map((lesson) => ({
+            ...lesson,
+            rawTextPath: portableManifestPath(lesson.rawTextPath),
+            rawHtmlPath: portableManifestPath(lesson.rawHtmlPath),
+          })),
+        },
+        null,
+        2,
+      )}\n`,
+      "utf8",
+    );
 
     if (logSummary) {
       console.log(JSON.stringify(summary, null, 2));
@@ -164,18 +202,57 @@ export async function exportScormMarkdown(options = {}) {
   }
 }
 
+function stableMarkdownOutputPath(title) {
+  const configuredOutput = (process.env.SCORM_MARKDOWN_OUT || "").trim();
+  return configuredOutput
+    ? path.resolve(ROOT, configuredOutput)
+    : defaultMarkdownOutPath(title);
+}
+
+export async function exportScormMarkdown(options = {}) {
+  const hasExplicitPaths =
+    options.outPath || options.rawExportDir || options.exportManifestPath;
+  if (options.transactional === false || hasExplicitPaths) {
+    return exportScormMarkdownFromPaths(options);
+  }
+
+  const stageDir = path.join(
+    EXPORT_DIR,
+    ".staging",
+    `standalone-${crypto.randomUUID()}`,
+  );
+  let staged;
+  try {
+    staged = await exportScormMarkdownFromPaths({
+      ...options,
+      outPath: path.join(stageDir, "markdown.md"),
+      rawExportDir: path.join(stageDir, "raw"),
+      exportManifestPath: path.join(stageDir, "manifest.json"),
+    });
+    if (!Array.isArray(staged.lessons) || staged.lessons.length < 1) {
+      throw new Error("SCORM export produced no lessons; staged cache was not promoted.");
+    }
+    return await promoteStagedExport(staged, {
+      manifestPath: EXPORT_MANIFEST_PATH,
+      outputPath: stableMarkdownOutputPath(staged.title),
+      rawDir: RAW_EXPORT_DIR,
+      root: ROOT,
+    });
+  } finally {
+    await fs.rm(stageDir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
 /**
- * Wipe the on-disk SCORM export cache so the next run starts from scratch.
- * Called when the current job targets a different `COURSE_OUTLINE_URL` than
- * the cached manifest, or when the user explicitly passes `--refresh`. Silent
- * by design — the caller logs once after invoking it.
+ * Explicit maintenance helper for wiping generated SCORM/Notion cache data.
+ * Normal refreshes use staging and rollback instead of calling this function.
  */
 export async function clearScormExportCache() {
   let cachedOutPath = null;
   try {
     const manifest = JSON.parse(await fs.readFile(EXPORT_MANIFEST_PATH, "utf8"));
     if (typeof manifest.outPath === "string" && manifest.outPath) {
-      cachedOutPath = manifest.outPath;
+      cachedOutPath = resolveManifestPath(manifest.outPath);
     }
   } catch {
     // No manifest, or unreadable — nothing more to discover.

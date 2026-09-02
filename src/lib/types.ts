@@ -44,7 +44,15 @@ export interface JobRequest {
   flags?: {
     refresh?: boolean;
     deleteAfter?: boolean;
+    remote?: boolean;
   };
+}
+
+export interface SessionSummary {
+  mode: "local" | "remote";
+  profileEvidence: "none" | "present";
+  verified: boolean;
+  destination: "not-checked" | "blackboard" | "login" | "unknown";
 }
 
 export interface JobSummary {
@@ -67,6 +75,10 @@ export interface JobSummary {
   notionParentPageId?: string;
   notionPageUrl?: string;
   deletedAfterValidation?: boolean;
+  kind?: "session-check" | string;
+  session?: SessionSummary;
+  reachedBlackboard?: boolean;
+  destination?: string;
 }
 
 export interface Job {

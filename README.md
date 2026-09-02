@@ -251,7 +251,11 @@ En la barra superior verás un chip de sesión. Posibles estados:
   Chromium con la pantalla de login de tu universidad. Mete tus credenciales,
   completa MFA si lo tienes, y **cuando aterrices correctamente en Blackboard,
   cierra esa ventana**. La app re-verificará la sesión sola.
-- ⚪ **Sin verificar** — pulsa el chip para verificar.
+- 🟠 **Perfil guardado · sin confirmar** — hay datos locales, pero todavía no
+  se ha comprobado el servidor. Usa **Verificar en Blackboard** antes de
+  publicar.
+- ⚪ **Sin verificar** — inicia sesión o usa **Verificar en Blackboard** para
+  confirmar el servidor.
 
 La sesión se guarda en un perfil local de Chromium. No vuelves a tener que
 loguear hasta que tu universidad invalide la sesión (suele durar varios días).
@@ -267,11 +271,16 @@ En Blackboard, dentro de tu navegador normal:
 4. **Sin esperar a que se cargue la unidad**, copia la URL de la barra de
    direcciones del navegador.
 
-La URL tiene esta forma:
+La URL suele tener esta forma:
 
 ```
 https://<tu-institución>.blackboard.com/ultra/courses/_COURSE_1/outline/scorm/overview/_ITEM_1?courseId=_COURSE_1
 ```
+
+Algunas instalaciones muestran `/scorm/overview/` o `/grades/scorm/overview/`
+en lugar de `/outline/scorm/overview/`. La aplicación acepta esas variantes y
+compara el curso y el item, no la cadena exacta del enlace. Copia la URL
+completa de Blackboard, incluyendo sus parámetros, cuando sea posible.
 
 ### 4. Publica en Notion
 
@@ -331,6 +340,11 @@ Los cambios se guardan automáticamente (no hay botón "Guardar").
 |---|---|
 | Banner amarillo **"Configuración incompleta"** | Falta una variable en `.env`. Revisa la sección [Configuración](#configuración-el-env) y reinicia `npm run dev`. |
 | Chip dice **"Inicia sesión en Blackboard"** ámbar | Tu sesión está caducada (o nunca has hecho login). Pulsa el chip y completa el login. |
+| Chip dice **"Perfil guardado · sin confirmar"** | Pulsa **Verificar en Blackboard**. Esta acción navega al servidor y puede contar para el límite de sesiones concurrentes. |
+| Error **"El perfil de Blackboard está en uso"** | Cierra cualquier otra ventana o proceso de login/scraping y vuelve a intentarlo. Solo puede haber una instancia usando el perfil. |
+| Error **"No se ha encontrado el SCORM en el curso"** | La URL terminó en otra página o Blackboard cambió el enlace. Copia de nuevo la URL del SCORM desde Blackboard. |
+| Error **"El inicio de sesión no ha terminado"** | La ventana se cerró antes de llegar a Blackboard. No hay límite de tiempo para introducir la contraseña; vuelve a iniciar sesión y espera a que cargue. |
+| Error **"La caché de SCORM no es válida"** | La aplicación reconstruirá la caché y conservará la última exportación válida si la nueva navegación falla. |
 | Toast **"Blackboard no responde"** | Internet lento o la URL del curso no carga en 30 s. Reintenta cuando tengas mejor conexión. |
 | Toast **"URL no accesible"** | El dominio que pusiste en `BLACKBOARD_BASE_URL` no resuelve. Probable typo en el subdominio. |
 | Error **"Notion ha rechazado la petición"** | La conexión interna no tiene acceso a la página padre, el token está mal pegado o falta alguna capacidad. Revisa el paso [Dar acceso a la página padre en Notion](#3-dar-acceso-a-la-página-padre-en-notion). |
@@ -362,9 +376,12 @@ Información para quien quiera entender o modificar el código.
 |---|---|
 | `npm run dev` | UI (Vite) en `127.0.0.1:5173` + API en `127.0.0.1:8787`. Lo normal para usar la app. |
 | `npm run web` | Solo la API; sirve `dist/` si has hecho build. |
+| `npm test` | Ejecuta la suite de regresión local con Node. |
 | `npm run build` | Comprueba tipos y construye el frontend. |
 | `npm run login` | Abre Blackboard headed para iniciar sesión manualmente (equivalente al chip de la barra superior). |
-| `npm run check-session` | Verifica la sesión sin abrir ventana visible. |
+| `npm run reset-session -- --confirm` | Mueve el perfil local a un backup fechado y deja preparado un perfil limpio. No cierra sesiones remotas. |
+| `npm run check-session` | Inspecciona el perfil local sin abrir ventana visible; no confirma el servidor. |
+| `npm run check-session -- --remote` | Navega a Blackboard para comprobar el servidor. Puede afectar al límite de sesiones concurrentes. |
 | `npm run open` | Reabre Blackboard con el perfil guardado (depuración). |
 | `npm run open-scorm` | Abre la unidad SCORM configurada y guarda artefactos en `artifacts/`. |
 | `npm run export-scorm-md` | Solo Markdown, sin tocar Notion. |

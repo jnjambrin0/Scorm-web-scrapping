@@ -6,8 +6,10 @@
   "scripts": {
     "dev": "node scripts/dev-server.mjs",
     "web": "node scripts/web-server.mjs",
+    "test": "node --test test/*.test.mjs",
     "build": "tsc --noEmit && vite build",
     "login": "node scripts/blackboard-browser.mjs login",
+    "reset-session": "node scripts/blackboard-reset-session.mjs",
     "open": "node scripts/blackboard-browser.mjs open",
     "check-session": "node scripts/blackboard-browser.mjs check-session",
     "open-scorm": "node scripts/blackboard-open-scorm.mjs",

@@ -12,6 +12,8 @@
 // below read them as plain `process.env.X` lookups — there are no hardcoded
 // fallbacks that could silently mask missing configuration.
 
+export { isDirectScormUrl } from "../scorm/urls.mjs";
+
 /** Notion integration token. Required for `notion-dry-run` and `notion-publish`. */
 export function configuredNotionApiKey() {
   return (process.env.NOTION_API_KEY || "").trim() || null;
@@ -19,9 +21,8 @@ export function configuredNotionApiKey() {
 
 /**
  * Base Blackboard URL for the institution. Required for `login` and
- * `check-session`. Used as the page the script navigates to when verifying
- * authentication; an authenticated session lands here directly, while an
- * expired one redirects to the Microsoft sign-in flow.
+ * `check-session`. Remote checks navigate here; local checks only inspect the
+ * persistent profile and never contact Blackboard.
  */
 export function configuredBlackboardBaseUrl() {
   return (process.env.BLACKBOARD_BASE_URL || "").trim() || null;
@@ -34,10 +35,6 @@ export const DEFAULT_NOTION_PARENT_PAGE_TITLE = "Universidad";
 
 export function configuredCourseOutlineUrl() {
   return (process.env.COURSE_OUTLINE_URL || "").trim();
-}
-
-export function isDirectScormUrl(value) {
-  return /\/outline\/scorm\/overview\//.test(value || "");
 }
 
 export function configuredScormTitle() {

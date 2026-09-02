@@ -3,7 +3,12 @@ import fs from "node:fs/promises";
 import path from "node:path";
 
 import { openScorm, waitForFrame } from "../scorm/navigation.mjs";
-import { NOTION_ASSET_DIR, NOTION_ASSET_MANIFEST_PATH } from "../shared/paths.mjs";
+import { canonicalScormIdentity } from "../scorm/urls.mjs";
+import {
+  NOTION_ASSET_DIR,
+  NOTION_ASSET_MANIFEST_PATH,
+  ROOT,
+} from "../shared/paths.mjs";
 import { formatBytes, safeFilename, sanitizeError } from "../shared/text.mjs";
 import { logProgress } from "./progress.mjs";
 
@@ -180,12 +185,22 @@ function localNameForAsset(asset) {
   return `${String(asset.id).padStart(3, "0")}-${stem || "asset"}${ext}`;
 }
 
+function manifestPath(value) {
+  const relative = path.relative(ROOT, path.resolve(value));
+  if (relative.startsWith("..") || path.isAbsolute(relative)) {
+    return path.resolve(value);
+  }
+  return relative.split(path.sep).join("/");
+}
+
 export async function writeAssetManifest(scormExport, assets, extra = {}) {
   await fs.mkdir(NOTION_ASSET_DIR, { recursive: true });
   const manifest = {
     generatedAt: new Date().toISOString(),
-    sourceMarkdown: scormExport.outPath,
-    sourceManifest: scormExport.exportManifestPath,
+    sourceMarkdown: manifestPath(scormExport.outPath),
+    sourceManifest: manifestPath(scormExport.exportManifestPath),
+    sourceIdentity:
+      scormExport.sourceIdentity || canonicalScormIdentity(scormExport.courseOutlineUrl || ""),
     title: scormExport.title,
     assets,
     ...extra,
@@ -217,7 +232,14 @@ export async function applyCachedAssetManifest(assets, scormExport) {
   // different Markdown export. The exporter wipes the asset directory on URL
   // mismatch, but if anything leaks through (corrupted state, hand-edited
   // manifest) this prevents cross-URL contamination of media references.
-  if (
+  if (scormExport?.sourceIdentity) {
+    // Legacy asset manifests have no trustworthy source identity. Their
+    // sourceManifest path may now point at a newer export, so refusing reuse
+    // is safer than risking cross-course media contamination.
+    if (manifest.sourceIdentity !== scormExport.sourceIdentity) {
+      return 0;
+    }
+  } else if (
     typeof manifest.sourceMarkdown === "string" &&
     manifest.sourceMarkdown &&
     scormExport?.outPath &&

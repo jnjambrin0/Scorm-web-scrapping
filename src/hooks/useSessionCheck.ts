@@ -6,9 +6,12 @@ import { classifyJobError, type ClassifiedError } from "../lib/errors";
 export type SessionCheckStatus =
   | "idle"
   | "checking"
+  | "stored"
   | "verified"
   | "unauth"
   | "error";
+
+export type SessionCheckMode = "local" | "remote";
 
 export interface UseSessionCheck {
   status: SessionCheckStatus;
@@ -16,7 +19,9 @@ export interface UseSessionCheck {
   classifiedError: ClassifiedError | null;
   /** True while a check is in-flight (mirrors status === "checking" but easier to read). */
   busy: boolean;
-  run: () => Promise<void>;
+  run: (mode?: SessionCheckMode) => Promise<void>;
+  markVerified: () => void;
+  markUnauthenticated: (error?: ClassifiedError) => void;
   dismissError: () => void;
 }
 
@@ -44,8 +49,24 @@ export function useSessionCheck(): UseSessionCheck {
 
   const finish = useCallback((job: Job) => {
     const logs = logsRef.current;
+    const session = job.summary?.session;
+    if (session) {
+      setCheckedAt(new Date());
+      setClassifiedError(null);
+      if (session.verified) {
+        setStatus("verified");
+      } else if (session.mode === "local" && session.profileEvidence === "present") {
+        setStatus("stored");
+      } else {
+        setStatus("unauth");
+      }
+      return;
+    }
+
     if (job.status === "success") {
-      setStatus("verified");
+      // Older backends did not emit a session summary. Keep this conservative:
+      // a successful local probe is not proof that Blackboard accepted the session.
+      setStatus("stored");
       setCheckedAt(new Date());
       setClassifiedError(null);
       return;
@@ -61,7 +82,7 @@ export function useSessionCheck(): UseSessionCheck {
     setStatus(classified.isAuthIssue ? "unauth" : "error");
   }, []);
 
-  const run = useCallback(async () => {
+  const run = useCallback(async (mode: SessionCheckMode = "local") => {
     if (inFlightRef.current) return;
     inFlightRef.current = true;
     setStatus("checking");
@@ -72,7 +93,10 @@ export function useSessionCheck(): UseSessionCheck {
 
     let job: Job;
     try {
-      job = await api.startJob({ command: "check-session" });
+      job = await api.startJob({
+        command: "check-session",
+        flags: { remote: mode === "remote" },
+      });
     } catch (err) {
       inFlightRef.current = false;
       const message = err instanceof Error ? err.message : "Unknown error";
@@ -122,12 +146,28 @@ export function useSessionCheck(): UseSessionCheck {
     if (status === "error") setStatus("idle");
   }, [status]);
 
+  const markVerified = useCallback(() => {
+    inFlightRef.current = false;
+    setStatus("verified");
+    setCheckedAt(new Date());
+    setClassifiedError(null);
+  }, []);
+
+  const markUnauthenticated = useCallback((error?: ClassifiedError) => {
+    inFlightRef.current = false;
+    setStatus("unauth");
+    setCheckedAt(new Date());
+    setClassifiedError(error ?? null);
+  }, []);
+
   return {
     status,
     checkedAt,
     classifiedError,
     busy: status === "checking",
     run,
+    markVerified,
+    markUnauthenticated,
     dismissError,
   };
 }

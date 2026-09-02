@@ -1,19 +1,25 @@
 import "dotenv/config";
 
 import { Client } from "@notionhq/client";
+import crypto from "node:crypto";
 import fs from "node:fs/promises";
+import path from "node:path";
 
 import {
-  clearScormExportCache,
   exportScormMarkdown,
   launchPersistentContext,
+  safeFilename,
 } from "../scorm/markdown-exporter.mjs";
 import {
   configuredCourseOutlineUrl,
   hasNotionPaidPlan,
 } from "../shared/env.mjs";
+import { canonicalScormIdentity } from "../scorm/urls.mjs";
 import {
+  EXPORT_DIR,
   NOTION_ASSET_MANIFEST_PATH,
+  RAW_EXPORT_DIR,
+  ROOT,
   SCORM_EXPORT_MANIFEST_PATH,
 } from "../shared/paths.mjs";
 import { formatBytes, sanitizeError } from "../shared/text.mjs";
@@ -42,6 +48,11 @@ import {
   MULTI_PART_SIZE,
   uploadAssets,
 } from "./uploads.mjs";
+import {
+  classifyExportCache,
+  promoteStagedExport,
+  resolveArtifactPath,
+} from "./cache.mjs";
 
 // API contract with Notion. Bumped only when the SDK / API requires it; not a
 // user-configurable knob, so this lives in code instead of `.env`.
@@ -64,28 +75,100 @@ function parseArgs(argv) {
   };
 }
 
-async function loadExistingExport() {
-  const manifest = await readJson(SCORM_EXPORT_MANIFEST_PATH);
-  const markdown = await fs.readFile(manifest.outPath, "utf8");
+async function loadExistingExport(currentIdentity) {
+  let rawManifest;
+  try {
+    rawManifest = await fs.readFile(SCORM_EXPORT_MANIFEST_PATH, "utf8");
+  } catch (error) {
+    return {
+      cache: {
+        status: "unavailable",
+        reason: error.code === "ENOENT" ? "manifest-missing" : "manifest-invalid",
+      },
+    };
+  }
+
+  let manifest;
+  try {
+    manifest = JSON.parse(rawManifest);
+  } catch {
+    return {
+      cache: { status: "unavailable", reason: "manifest-invalid" },
+    };
+  }
+
+  if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) {
+    return {
+      cache: { status: "unavailable", reason: "manifest-invalid" },
+    };
+  }
+  if (!Array.isArray(manifest.lessons)) {
+    return {
+      cache: { status: "unavailable", reason: "manifest-invalid" },
+    };
+  }
+
+  const sourceIdentity =
+    manifest.sourceIdentity || canonicalScormIdentity(manifest.courseOutlineUrl || "");
+  const outPath = resolveArtifactPath(
+    manifest.outPath,
+    SCORM_EXPORT_MANIFEST_PATH,
+    ROOT,
+  );
+  const markdownExists = outPath
+    ? await fs.access(outPath).then(() => true).catch(() => false)
+    : false;
+  const cache = classifyExportCache({
+    currentIdentity,
+    manifest: { ...manifest, sourceIdentity },
+    markdownExists,
+  });
+  if (cache.status !== "valid") {
+    return { cache };
+  }
+
+  const rawDir = resolveArtifactPath(
+    manifest.rawDir,
+    SCORM_EXPORT_MANIFEST_PATH,
+    ROOT,
+  );
   return {
-    ...manifest,
-    markdown,
+    cache,
+    scormExport: {
+      ...manifest,
+      sourceIdentity,
+      outPath,
+      rawDir,
+      exportManifestPath: SCORM_EXPORT_MANIFEST_PATH,
+      lessons: (manifest.lessons || []).map((lesson) => ({
+        ...lesson,
+        rawTextPath: resolveArtifactPath(
+          lesson.rawTextPath,
+          SCORM_EXPORT_MANIFEST_PATH,
+          ROOT,
+        ),
+        rawHtmlPath: resolveArtifactPath(
+          lesson.rawHtmlPath,
+          SCORM_EXPORT_MANIFEST_PATH,
+          ROOT,
+        ),
+      })),
+      markdown: await fs.readFile(outPath, "utf8"),
+    },
   };
 }
 
 async function getScormExport(options) {
   const currentUrl = configuredCourseOutlineUrl();
+  const currentIdentity = canonicalScormIdentity(currentUrl);
 
   if (!options.refresh) {
-    try {
-      logProgress(`Loading cached SCORM export manifest: ${SCORM_EXPORT_MANIFEST_PATH}`);
-      const scormExport = await loadExistingExport();
-      const cachedUrl = (scormExport.courseOutlineUrl || "").trim();
-      if (currentUrl && cachedUrl !== currentUrl) {
-        logProgress(
-          "Cached SCORM export targets a different URL; invalidating cache and refreshing.",
-        );
-      } else {
+    logProgress(`Loading cached SCORM export manifest: ${SCORM_EXPORT_MANIFEST_PATH}`);
+    const cached = await loadExistingExport(currentIdentity);
+    logProgress(`Cache status: ${cached.cache.reason}.`);
+    if (cached.cache.status === "valid") {
+      const scormExport = cached.scormExport;
+      if (scormExport) {
         logProgress(
           `Loaded Markdown export: ${
             Array.isArray(scormExport.lessons) ? scormExport.lessons.length : 0
@@ -93,33 +176,50 @@ async function getScormExport(options) {
         );
         return scormExport;
       }
-    } catch {
-      logProgress(
-        "Cached SCORM export is not available; opening Blackboard/SCORM to refresh it.",
-      );
-      // Fall through and refresh from the authenticated SCORM session.
     }
+    logProgress("Cached SCORM export is not available; opening Blackboard/SCORM to refresh it.");
   } else {
     logProgress("Refreshing Markdown export from the authenticated SCORM session.");
   }
 
-  await clearScormExportCache();
-  logProgress("Cleared cached SCORM export and Notion assets.");
-
   const context = await launchPersistentContext();
+  const stageDir = path.join(EXPORT_DIR, ".staging", `export-${crypto.randomUUID()}`);
+  const stageRawDir = path.join(stageDir, "raw");
+  const stageManifestPath = path.join(stageDir, "manifest.json");
+  const stageMarkdownPath = path.join(stageDir, "markdown.md");
   try {
+    await fs.mkdir(stageRawDir, { recursive: true });
     const scormExport = await exportScormMarkdown({
       context,
+      outPath: stageMarkdownPath,
+      rawExportDir: stageRawDir,
+      exportManifestPath: stageManifestPath,
+      transactional: false,
       logSummary: false,
+    });
+    if (!Array.isArray(scormExport.lessons) || scormExport.lessons.length < 1) {
+      throw new Error("SCORM export produced no lessons; staged cache was not promoted.");
+    }
+
+    const configuredOutput = (process.env.SCORM_MARKDOWN_OUT || "").trim();
+    const outputPath = configuredOutput
+      ? path.resolve(ROOT, configuredOutput)
+      : path.join(EXPORT_DIR, `${safeFilename(scormExport.title) || "scorm-export"}.md`);
+    const promoted = await promoteStagedExport(scormExport, {
+      manifestPath: SCORM_EXPORT_MANIFEST_PATH,
+      outputPath,
+      rawDir: RAW_EXPORT_DIR,
+      root: ROOT,
     });
     logProgress(
       `Refreshed Markdown export: ${
-        Array.isArray(scormExport.lessons) ? scormExport.lessons.length : 0
+        Array.isArray(promoted.lessons) ? promoted.lessons.length : 0
       } lessons, ${formatBytes(scormExport.bytes)}.`,
     );
-    return scormExport;
+    return promoted;
   } finally {
     await context.close();
+    await fs.rm(stageDir, { recursive: true, force: true }).catch(() => {});
   }
 }
 
