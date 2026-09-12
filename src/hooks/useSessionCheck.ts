@@ -274,12 +274,18 @@ export function useSessionCheck(): UseSessionCheck {
         const active = await api.activeJobs();
         const job = active.jobs.find(isSessionJob);
         if (!cancelled && job) recover(job);
-        if (!cancelled && !job && active.profile.state === "external-browser") {
+        if (
+          !cancelled &&
+          !job &&
+          (active.profile.state === "external-browser" || active.profile.state === "application-lock")
+        ) {
           setCheckedAt(new Date());
           setStatus("error");
           setClassifiedError(
             classifyJobError(
-              "El perfil de Blackboard está abierto en otra ventana de navegador.",
+              active.profile.state === "external-browser"
+                ? "El perfil de Blackboard está abierto en otra ventana de navegador."
+                : "El perfil de Blackboard está ocupado por otra tarea local.",
               "check-session",
               [],
             ),

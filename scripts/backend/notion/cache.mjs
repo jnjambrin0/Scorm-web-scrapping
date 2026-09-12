@@ -2,6 +2,8 @@ import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 
+export const SCORM_EXPORT_MANIFEST_SCHEMA_VERSION = 2;
+
 function pathExists(filePath) {
   return fs.access(filePath).then(() => true).catch(() => false);
 }
@@ -42,6 +44,9 @@ export function classifyExportCache({
   }
   if (!Array.isArray(manifest.lessons) || manifest.lessons.length < 1) {
     return { status: "unavailable", reason: "manifest-invalid" };
+  }
+  if (manifest.schemaVersion !== SCORM_EXPORT_MANIFEST_SCHEMA_VERSION) {
+    return { status: "unavailable", reason: "source-schema-migration" };
   }
 
   if (

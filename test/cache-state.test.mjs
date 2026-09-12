@@ -8,10 +8,19 @@ import {
   classifyExportCache,
   promoteStagedExport,
   resolveArtifactPath,
+  SCORM_EXPORT_MANIFEST_SCHEMA_VERSION,
 } from "../scripts/backend/notion/cache.mjs";
 
 const sourceUrlIdentity =
   "https://u-tad.blackboard.com/ultra/courses/_14330_1/scorm/overview/_641800_1";
+
+function validManifest(sourceUrlIdentity) {
+  return {
+    schemaVersion: SCORM_EXPORT_MANIFEST_SCHEMA_VERSION,
+    sourceUrlIdentity,
+    lessons: [{}],
+  };
+}
 
 test("reports precise reasons for unavailable export cache", () => {
   assert.equal(classifyExportCache({ currentSourceUrlIdentity: sourceUrlIdentity }).reason, "manifest-missing");
@@ -25,7 +34,7 @@ test("reports precise reasons for unavailable export cache", () => {
   assert.equal(
     classifyExportCache({
       currentSourceUrlIdentity: sourceUrlIdentity,
-      manifest: { sourceUrlIdentity, lessons: [{}] },
+      manifest: validManifest(sourceUrlIdentity),
       markdownExists: false,
     }).reason,
     "markdown-missing",
@@ -33,7 +42,7 @@ test("reports precise reasons for unavailable export cache", () => {
   assert.equal(
     classifyExportCache({
       currentSourceUrlIdentity: sourceUrlIdentity,
-      manifest: { sourceUrlIdentity: "other-source", lessons: [{}] },
+      manifest: validManifest("other-source"),
       markdownExists: true,
     }).reason,
     "source-mismatch",
@@ -44,7 +53,7 @@ test("accepts a complete cache only when source and markdown are present", () =>
   assert.deepEqual(
     classifyExportCache({
       currentSourceUrlIdentity: sourceUrlIdentity,
-      manifest: { sourceUrlIdentity, lessons: [{}] },
+      manifest: validManifest(sourceUrlIdentity),
       markdownExists: true,
     }),
     { status: "valid", reason: "valid" },
@@ -73,6 +82,7 @@ test("preserves the old export when staging promotion fails", async () => {
   await fs.writeFile(
     manifestPath,
     JSON.stringify({
+      schemaVersion: SCORM_EXPORT_MANIFEST_SCHEMA_VERSION,
       sourceUrlIdentity: "old-source",
       outPath: "exports/old.md",
       rawDir: "exports/raw",
@@ -114,6 +124,7 @@ test("promotes a complete staged export with portable manifest paths", async () 
 
   const promoted = await promoteStagedExport(
     {
+      schemaVersion: SCORM_EXPORT_MANIFEST_SCHEMA_VERSION,
       sourceUrlIdentity,
       courseOutlineUrl: sourceUrlIdentity,
       title: "New unit",
@@ -143,9 +154,20 @@ test("does not reuse a cache between bare and outline SCORM routes", () => {
   assert.deepEqual(
     classifyExportCache({
       currentSourceUrlIdentity: sourceUrlIdentity,
-      manifest: { sourceUrlIdentity: outlineSourceUrlIdentity, lessons: [{}] },
+      manifest: validManifest(outlineSourceUrlIdentity),
       markdownExists: true,
     }),
     { status: "unavailable", reason: "source-mismatch" },
+  );
+});
+
+test("marks legacy manifests for a safe source schema migration", () => {
+  assert.deepEqual(
+    classifyExportCache({
+      currentSourceUrlIdentity: sourceUrlIdentity,
+      manifest: { sourceUrlIdentity, lessons: [{}] },
+      markdownExists: true,
+    }),
+    { status: "unavailable", reason: "source-schema-migration" },
   );
 });

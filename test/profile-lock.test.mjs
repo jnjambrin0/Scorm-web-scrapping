@@ -9,6 +9,8 @@ import {
   BrowserProfileBusyError,
   externalBrowserPids,
   isBrowserProfileConflict,
+  parseBrowserProfileLock,
+  readBrowserProfileLock,
 } from "../scripts/backend/browser/context.mjs";
 
 test("recognizes native Chromium messages for an already-open profile", () => {
@@ -43,5 +45,59 @@ test("profile lock prevents a second owner and releases cleanly", async () => {
   await release();
   const secondRelease = await acquireBrowserProfileLock(profileDir);
   await secondRelease();
+  await fs.rm(root, { recursive: true, force: true });
+});
+
+test("reclaims a stale lock and exposes only safe owner metadata", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "scorm-profile-lock-"));
+  const profileDir = path.join(root, "profile");
+  await fs.mkdir(path.dirname(profileDir), { recursive: true });
+  await fs.writeFile(
+    `${profileDir}.lock`,
+    JSON.stringify({
+      pid: 999999,
+      nonce: "stale-nonce",
+      createdAt: "2026-09-12T10:00:00.000Z",
+      command: "check-session",
+      jobId: "job-1",
+    }),
+    "utf8",
+  );
+
+  assert.deepEqual(parseBrowserProfileLock(await fs.readFile(`${profileDir}.lock`, "utf8")), {
+    pid: 999999,
+    nonce: "stale-nonce",
+    createdAt: "2026-09-12T10:00:00.000Z",
+    command: "check-session",
+    jobId: "job-1",
+  });
+  const release = await acquireBrowserProfileLock(profileDir, {
+    command: "notion-dry-run",
+    jobId: "job-2",
+  });
+  const owner = await readBrowserProfileLock(profileDir);
+  assert.equal(owner?.command, "notion-dry-run");
+  assert.equal(owner?.jobId, "job-2");
+  await release();
+  assert.equal(await readBrowserProfileLock(profileDir), null);
+  await fs.rm(root, { recursive: true, force: true });
+});
+
+test("waits for another process to finish writing lock metadata", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "scorm-profile-lock-"));
+  const profileDir = path.join(root, "profile");
+  await fs.mkdir(path.dirname(profileDir), { recursive: true });
+  await fs.writeFile(`${profileDir}.lock`, "", "utf8");
+  const metadataTimer = setTimeout(() => {
+    void fs.writeFile(
+      `${profileDir}.lock`,
+      JSON.stringify({ pid: 999999, nonce: "stale", createdAt: "2026-09-12T10:00:00.000Z" }),
+      "utf8",
+    );
+  }, 10);
+
+  const release = await acquireBrowserProfileLock(profileDir);
+  clearTimeout(metadataTimer);
+  await release();
   await fs.rm(root, { recursive: true, force: true });
 });

@@ -71,8 +71,11 @@ async function dismissConcurrentSessionModal(page) {
 }
 
 async function settleNavigation(page) {
-  await page.waitForLoadState("networkidle", { timeout: 20000 }).catch(() => {});
-  await page.waitForTimeout(2000);
+  await page.waitForLoadState("domcontentloaded", { timeout: 20000 }).catch(() => {});
+  await page.locator("body").waitFor({ state: "visible", timeout: 20000 }).catch(() => {});
+  await page
+    .waitForFunction(() => Boolean(document.body?.innerText.trim()), { timeout: 5000 })
+    .catch(() => {});
 }
 
 async function pageDestination(page, baseUrl, target = null) {
@@ -122,6 +125,15 @@ async function isAuthenticatedBlackboardPage(page, baseUrl) {
       hasPasswordField,
     }) === "blackboard"
   );
+}
+
+async function waitForAuthenticatedBlackboardPage(page, baseUrl, timeout = 20000) {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    if (await isAuthenticatedBlackboardPage(page, baseUrl)) return true;
+    await page.waitForTimeout(250);
+  }
+  return false;
 }
 
 async function navigationSummary(page, destination) {
@@ -175,24 +187,172 @@ function safeHref(pageUrl, href) {
   }
 }
 
-function isScormPlayerUrl(value, target) {
-  if (typeof value !== "string") return false;
-  if (/\/scormdriver\/indexAPI\.html/i.test(value)) return true;
+const ATTEMPT_LAUNCH_TIMEOUT_MS = 20000;
+const CONTENT_FRAME_TIMEOUT_MS = 20000;
+const POLL_INTERVAL_MS = 100;
+
+function decodePathPart(value) {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+function launchPageRole(value, target, expectedOrigin) {
+  if (typeof value !== "string" || !expectedOrigin) return null;
 
   try {
     const parsed = new URL(value);
-    const sameOrigin = target && parsed.origin === target.origin;
-    const sameTarget = target && parseScormUrl(value)?.identity === target.identity;
-    return Boolean(
-      sameOrigin &&
-        sameTarget &&
-        /\/scorm\/launchFrame(?:\/|$)|\/scor-scormengine-[^/]+\//i.test(
-          parsed.pathname,
-        ),
+    if (parsed.origin !== expectedOrigin) return null;
+
+    const launchFrame = parsed.pathname.match(
+      /^\/ultra\/courses\/([^/]+)\/(?:[^/]+\/)*scorm\/launchFrame(?:\/|$)/i,
     );
+    if (launchFrame && target && decodePathPart(launchFrame[1]) === target.courseId) {
+      return "launch-frame";
+    }
+    if (/\/scormdriver\/indexAPI\.html$/i.test(parsed.pathname)) {
+      return "legacy-player";
+    }
+    if (
+      /\/webapps\/scor-scormengine-[^/]+\/defaultui\/player\/(?:modern|deliver)\.html$/i.test(
+        parsed.pathname,
+      )
+    ) {
+      return "engine-player";
+    }
+    if (/\/scormcontent(?:\/|$)/i.test(parsed.pathname)) {
+      return "content-window";
+    }
   } catch {
-    return false;
+    return null;
   }
+
+  return null;
+}
+
+function isPlayerRole(role) {
+  return role === "legacy-player" || role === "engine-player";
+}
+
+function delay(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+function createAttemptLaunchTracker(context, sourcePage, target) {
+  const pagesBeforeAttempt = new Set(context.pages());
+  const observedPages = new Set([sourcePage]);
+  const sourceOrigin = pageOrigin(sourcePage);
+
+  const observePage = (candidate) => {
+    if (!pagesBeforeAttempt.has(candidate)) {
+      observedPages.add(candidate);
+    }
+  };
+
+  context.on("page", observePage);
+
+  async function snapshot() {
+    const pages = [...observedPages].filter(
+      (candidate) => !candidate.isClosed?.(),
+    );
+    const related = new Map([[sourcePage, "source"]]);
+    let changed = true;
+
+    while (changed) {
+      changed = false;
+      for (const candidate of pages) {
+        if (related.has(candidate)) continue;
+        const opener = await candidate.opener().catch(() => null);
+        if (opener && related.has(opener)) {
+          related.set(
+            candidate,
+            related.get(opener) === "source" ? "popup" : "descendant-popup",
+          );
+          changed = true;
+        }
+      }
+    }
+
+    const entries = pages.map((candidate) => ({
+      page: candidate,
+      relation: related.get(candidate) || "unrelated",
+      role: related.has(candidate)
+        ? launchPageRole(candidate.url(), target, sourceOrigin)
+        : null,
+      url: safePageUrl(candidate.url()),
+    }));
+    return {
+      entries,
+      unrelatedCount: entries.filter((entry) => entry.relation === "unrelated").length,
+    };
+  }
+
+  return {
+    dispose() {
+      context.removeListener("page", observePage);
+    },
+    snapshot,
+  };
+}
+
+function attemptDiagnostics(snapshot) {
+  const related = snapshot.entries.filter((entry) => entry.relation !== "unrelated");
+  const roles = related
+    .map((entry) => `${entry.relation}:${entry.role || "unknown"}:${entry.url}`)
+    .join(", ");
+  return `observed pages: ${roles || "none"}; unrelated pages: ${snapshot.unrelatedCount}`;
+}
+
+async function waitForScormPlayer(tracker, target) {
+  const deadline = Date.now() + ATTEMPT_LAUNCH_TIMEOUT_MS;
+  let lastSnapshot = await tracker.snapshot();
+
+  while (Date.now() < deadline) {
+    const players = lastSnapshot.entries.filter(
+      (entry) => entry.relation !== "unrelated" && isPlayerRole(entry.role),
+    );
+    if (players.length === 1) {
+      return {
+        page: players[0].page,
+        metadata: {
+          playerRole: players[0].role,
+          playerUrl: players[0].url,
+          relation: players[0].relation,
+          bridgeSeen: lastSnapshot.entries.some(
+            (entry) => entry.relation !== "unrelated" && entry.role === "launch-frame",
+          ),
+          unrelatedPageCount: lastSnapshot.unrelatedCount,
+        },
+      };
+    }
+    if (players.length > 1) {
+      throw new Error(
+        `SCORM attempt opened multiple eligible player pages. ${attemptDiagnostics(
+          lastSnapshot,
+        )}`,
+      );
+    }
+    await delay(POLL_INTERVAL_MS);
+    lastSnapshot = await tracker.snapshot();
+  }
+
+  const bridgeSeen = lastSnapshot.entries.some(
+    (entry) => entry.relation !== "unrelated" && entry.role === "launch-frame",
+  );
+  if (bridgeSeen) {
+    throw new Error(
+      `SCORM attempt reached Blackboard launch frame but did not open a supported player. ${attemptDiagnostics(
+        lastSnapshot,
+      )}`,
+    );
+  }
+  throw new Error(
+    `SCORM attempt did not create or navigate to a supported player page. ${attemptDiagnostics(
+      lastSnapshot,
+    )}`,
+  );
 }
 
 async function navigateTo(page, url, baseUrl, target = null) {
@@ -231,7 +391,7 @@ async function bootstrapBlackboardPage(page, baseUrl) {
       )}`,
     );
   }
-  if (!(await isAuthenticatedBlackboardPage(page, baseUrl))) {
+  if (!(await waitForAuthenticatedBlackboardPage(page, baseUrl))) {
     throw new Error(
       `Blackboard bootstrap did not reach an authenticated page. ${await navigationSummary(
         page,
@@ -465,57 +625,96 @@ export async function openScorm(context) {
     );
   }
 
-  const popupFromAttempt = context
-    .waitForEvent("page", { timeout: 10000 })
-    .catch(() => null);
-  const samePageNavigation = page
-    .waitForURL(/\/scormdriver\/indexAPI\.html/i, { timeout: 10000 })
-    .then(() => null)
-    .catch(() => null);
-  await attemptControl.click();
-  const attemptPopup = await Promise.race([popupFromAttempt, samePageNavigation]);
-
-  let scormPage = null;
-  const deadline = Date.now() + 15000;
-  while (!scormPage && Date.now() < deadline) {
-    const candidates = [attemptPopup, page, ...context.pages()].filter(Boolean);
-    scormPage = candidates.find((candidate) =>
-      isScormPlayerUrl(candidate.url(), expectedScormTarget),
-    );
-    if (!scormPage) {
-      await new Promise((resolve) => setTimeout(resolve, 250));
-    }
+  const attemptTracker = createAttemptLaunchTracker(
+    context,
+    page,
+    expectedScormTarget,
+  );
+  let player;
+  try {
+    await attemptControl.click();
+    player = await waitForScormPlayer(attemptTracker, expectedScormTarget);
+  } finally {
+    attemptTracker.dispose();
   }
 
-  if (!scormPage) {
-    const pages = context.pages()
-      .map((candidate) => safePageUrl(candidate.url()))
-      .join(", ");
-    throw new Error(`Could not find SCORM player page after starting attempt. Pages: ${pages}`);
-  }
+  const scormPage = player.page;
 
   await scormPage
     .waitForLoadState("domcontentloaded", { timeout: 20000 })
     .catch(() => {});
-  await scormPage.waitForLoadState("networkidle", { timeout: 20000 }).catch(() => {});
   await dismissConcurrentSessionModal(scormPage);
   navigationMetadataByPage.set(scormPage, {
     bootstrap,
     source: sourceNavigation,
+    attempt: player.metadata,
   });
   return scormPage;
 }
 
-export function waitForFrame(page) {
-  const frame =
-    page.frames().find((candidate) => candidate.name() === "scormdriver_content") ||
-    page.frames().find((candidate) =>
-      candidate.url().includes("/scormcontent/"),
-    );
+function contentFrameOnPage(page) {
+  return (
+    page.frames().find(
+      (candidate) =>
+        candidate.name() === "scormdriver_content" &&
+        !/^about:blank(?:#.*)?$/i.test(candidate.url()),
+    ) ||
+    page.frames().find((candidate) => /\/scormcontent(?:\/|$)/i.test(candidate.url())) ||
+    null
+  );
+}
 
-  if (!frame) {
-    throw new Error("Could not find SCORM content frame");
+function pageOrigin(page) {
+  try {
+    return new URL(page.url()).origin;
+  } catch {
+    return null;
+  }
+}
+
+async function isDescendantPopup(candidate, ancestor) {
+  const visited = new Set();
+  let current = candidate;
+  while (current && !visited.has(current)) {
+    if (current === ancestor) return true;
+    visited.add(current);
+    current = await current.opener().catch(() => null);
+  }
+  return false;
+}
+
+async function contentFrameInLaunchFamily(page) {
+  const ownFrame = contentFrameOnPage(page);
+  if (ownFrame) return ownFrame;
+
+  const origin = pageOrigin(page);
+  if (!origin) return null;
+  const candidates = page
+    .context()
+    .pages()
+    .filter((candidate) => candidate !== page && !candidate.isClosed?.());
+
+  for (const candidate of candidates) {
+    if (pageOrigin(candidate) !== origin) continue;
+    if (!/\/scormcontent(?:\/|$)/i.test(candidate.url())) continue;
+    if (await isDescendantPopup(candidate, page)) {
+      return candidate.mainFrame();
+    }
+  }
+  return null;
+}
+
+export async function waitForFrame(page, { timeout = CONTENT_FRAME_TIMEOUT_MS } = {}) {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    const frame = await contentFrameInLaunchFamily(page);
+    if (frame) return frame;
+    await delay(POLL_INTERVAL_MS);
   }
 
-  return frame;
+  throw new Error(
+    `SCORM player was opened but its content surface did not become ready. Player: ${safePageUrl(
+      page.url(),
+    )}`,
+  );
 }

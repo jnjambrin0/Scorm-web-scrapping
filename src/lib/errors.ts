@@ -35,15 +35,16 @@ const NOTION_API = /(notion[^.]*api|HTTP\s+(?:401|403|404|409|429|5\d\d).*notion
 const NOTION_FILE_SIZE = /(file_upload_invalid_size|file size is not within the allowed limit of \d+\s*(MiB|GiB|MB|GB))/i;
 const FILESYSTEM = /\b(ENOENT|EACCES|EPERM|ENOTDIR|EISDIR)\b/;
 const NETWORK = /\b(ECONNREFUSED|ENETUNREACH|ETIMEDOUT|EAI_AGAIN|getaddrinfo|fetch failed|Failed to fetch|NetworkError)\b/i;
-const PROFILE_BUSY = /(BROWSER_PROFILE_BUSY|Browser profile is already in use|perfil de Blackboard (?:está en uso|está abierto)|perfil.*en uso|tarea de Blackboard aún activa)/i;
+const PROFILE_BUSY = /(BROWSER_PROFILE_BUSY|Browser profile is already in use|perfil de Blackboard (?:está en uso|está abierto|está ocupado)|perfil.*en uso|tarea de Blackboard aún activa)/i;
 const LOGIN_INCOMPLETE = /Login window closed before reaching Blackboard|Interactive Blackboard verification was closed|inicio de sesión.*no ha terminado|closed before reaching Blackboard/i;
 const SCORM_SOURCE_HTTP = /Direct SCORM source returned HTTP \d+/i;
 const SCORM_LINK_MISSING = /Direct SCORM source did not render a matching SCORM link/i;
 const SCORM_LINK_AMBIGUOUS = /Direct SCORM source rendered multiple matching SCORM links/i;
 const SCORM_LINK_WRONG = /Direct SCORM resolved link did not open the expected item/i;
+const SCORM_PLAYER = /SCORM attempt (?:reached Blackboard launch frame but did not open a supported player|did not create or navigate to a supported player page|opened multiple eligible player pages)|SCORM player was opened but its content surface did not become ready/i;
 const SCORM_ITEM = /Could not find SCORM item|Could not find course link/i;
 const SCORM_URL = /SCORM URL did not resolve|Direct SCORM URL did not resolve as entered|Could not find Start\/Continue attempt control|staged cache was not promoted/i;
-const CACHE_INVALID = /Cache status: (?:manifest-missing|manifest-invalid|markdown-missing|source-mismatch)/i;
+const CACHE_INVALID = /Cache status: (?:manifest-missing|manifest-invalid|markdown-missing|source-mismatch|source-schema-migration)/i;
 const PROCESS_CRASH = /Job failed with code/;
 
 const PATTERNS: ReadonlyArray<Pattern> = [
@@ -76,6 +77,11 @@ const PATTERNS: ReadonlyArray<Pattern> = [
     test: (raw, log) => SCORM_LINK_WRONG.test(raw) || SCORM_LINK_WRONG.test(log),
     titleKey: "error.scorm.linkWrong",
     hintKey: "error.scorm.linkWrong.hint",
+  },
+  {
+    test: (raw, log) => SCORM_PLAYER.test(raw) || SCORM_PLAYER.test(log),
+    titleKey: "error.scorm.player",
+    hintKey: "error.scorm.player.hint",
   },
   {
     test: (raw, _log) => PLAYWRIGHT_MISSING.test(raw),

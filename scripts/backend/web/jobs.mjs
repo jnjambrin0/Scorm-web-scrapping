@@ -95,7 +95,13 @@ export function validateCommandConfig(command) {
       };
     }
   }
-  if (command === "login" || command === "check-session") {
+  if (
+    command === "login" ||
+    command === "check-session" ||
+    command === "export-md" ||
+    command === "notion-dry-run" ||
+    command === "notion-publish"
+  ) {
     if (!configuredBlackboardBaseUrl()) {
       return {
         code: "missing-blackboard-base-url",
@@ -132,6 +138,17 @@ export function browserJobRunning(jobList = runningJobs()) {
 export function activeBrowserJob(jobList = runningJobs()) {
   return jobList.find(
     (job) => job.status === "running" && BROWSER_COMMANDS.has(job.command),
+  );
+}
+
+export function canReuseRemoteSessionCheck(command, flags, job) {
+  return Boolean(
+    command === "check-session" &&
+      flags?.remote &&
+      !flags?.interactive &&
+      job?.command === "check-session" &&
+      job.remote &&
+      !job.interactive,
   );
 }
 
@@ -215,6 +232,7 @@ export function serializeJob(job) {
     finalUrl: job.finalUrl,
     error: job.error,
     interactive: Boolean(job.interactive),
+    remote: Boolean(job.remote),
   };
 }
 
@@ -247,6 +265,9 @@ function addEvent(job, type, payload) {
 function inferPhase(line) {
   if (/Starting SCORM to Notion export|Profile dir|Mode:/.test(line)) {
     return "starting";
+  }
+  if (/Blackboard SCORM bootstrap|Direct SCORM source/.test(line)) {
+    return "blackboard-bootstrap";
   }
   if (/Loading cached SCORM|Refreshing Markdown|Loaded Markdown|Refreshed Markdown|Exported|outPath/.test(line)) {
     return "markdown";
@@ -429,6 +450,7 @@ export function createJob({ command, envOverrides, flags }) {
     stderr: "",
     cancelRequested: false,
     interactive: Boolean(flags.interactive),
+    remote: Boolean(flags.remote),
   };
   jobs.set(id, job);
 
@@ -440,6 +462,8 @@ export function createJob({ command, envOverrides, flags }) {
   const childEnv = {
     ...process.env,
     ...envOverrides,
+    SCORM_PROFILE_JOB_ID: id,
+    SCORM_PROFILE_COMMAND: command,
   };
   if (envOverrides.COURSE_OUTLINE_URL && !childEnv.BLACKBOARD_URL) {
     childEnv.BLACKBOARD_URL = envOverrides.COURSE_OUTLINE_URL;

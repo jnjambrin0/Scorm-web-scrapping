@@ -354,10 +354,10 @@ Los cambios se guardan automáticamente (no hay botón "Guardar").
 | Banner amarillo **"Configuración incompleta"** | Falta una variable en `.env`. Revisa la sección [Configuración](#configuración-el-env) y reinicia `npm run dev`. |
 | Chip dice **"Verificar e iniciar sesión"** ámbar | Tu sesión está caducada (o nunca has hecho login). Pulsa el chip y completa el login; la ventana se cerrará sola al confirmar Blackboard. |
 | Chip dice **"Comprobación pendiente"** | Blackboard no se pudo actualizar en segundo plano. La app repetirá la comprobación al exportar; también puedes pulsar el chip para abrir el SSO manual. |
-| Error **"El perfil de Blackboard está en uso"** | Si la app ofrece recuperar o cancelar una tarea, úsala. Solo si indica navegador externo, cierra esa ventana. No borres `SingletonLock` manualmente. |
+| Error **"El perfil de Blackboard está en uso"** | La verificación automática puede estar usando el perfil durante unos segundos. Si la app muestra una tarea activa, espera o recupérala; solo si indica navegador externo, cierra esa ventana. No borres `SingletonLock` manualmente. |
 | Error **"No se ha encontrado el SCORM en el curso"** | La URL terminó en otra página o Blackboard cambió el enlace. Copia de nuevo la URL del SCORM desde Blackboard. |
 | Error **"El inicio de sesión no ha terminado"** | La ventana se cerró antes de que Blackboard confirmase la sesión. No hay límite de tiempo para introducir la contraseña; vuelve a verificar e inicia sesión hasta llegar a Blackboard. |
-| Error **"La caché de SCORM no es válida"** | La aplicación reconstruirá la caché y conservará la última exportación válida si la nueva navegación falla. |
+| Error **"La caché de SCORM no es válida"** | La aplicación reconstruirá la caché y conservará la última exportación válida si la nueva navegación falla. Tras una actualización de schema, una regeneración única es normal. |
 | Toast **"Blackboard no responde"** | Internet lento o la URL del curso no carga en 30 s. Reintenta cuando tengas mejor conexión. |
 | Toast **"URL no accesible"** | El dominio que pusiste en `BLACKBOARD_BASE_URL` no resuelve. Probable typo en el subdominio. |
 | Error **"Notion ha rechazado la petición"** | La conexión interna no tiene acceso a la página padre, el token está mal pegado o falta alguna capacidad. Revisa el paso [Dar acceso a la página padre en Notion](#3-dar-acceso-a-la-página-padre-en-notion). |

@@ -14,7 +14,10 @@ import {
 } from "../shared/paths.mjs";
 import { safeFilename } from "../shared/text.mjs";
 import { scormSourceIdentity } from "./urls.mjs";
-import { promoteStagedExport } from "../notion/cache.mjs";
+import {
+  promoteStagedExport,
+  SCORM_EXPORT_MANIFEST_SCHEMA_VERSION,
+} from "../notion/cache.mjs";
 import { activateNonNavigationControls, scrollWholeLesson } from "./lesson-actions.mjs";
 import { openScorm, scormNavigationMetadata, waitForFrame } from "./navigation.mjs";
 import { readOverview, readScormPageTitle } from "./overview.mjs";
@@ -91,7 +94,7 @@ async function exportScormMarkdownFromPaths(options = {}) {
   const context = providedContext || (await launchPersistentContext());
   try {
     const scormPage = await openScorm(context);
-    const frame = waitForFrame(scormPage);
+    const frame = await waitForFrame(scormPage);
 
     const overview = await readOverview(frame);
     if (overview.length === 0) {
@@ -153,6 +156,7 @@ async function exportScormMarkdownFromPaths(options = {}) {
     await fs.writeFile(outputPath, markdown, "utf8");
 
     const summary = {
+      schemaVersion: SCORM_EXPORT_MANIFEST_SCHEMA_VERSION,
       title: exportTitle,
       courseOutlineUrl: configuredCourseOutlineUrl(),
       sourceUrlIdentity: scormSourceIdentity(configuredCourseOutlineUrl()),

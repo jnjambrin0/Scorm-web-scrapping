@@ -5,9 +5,11 @@ import { EventEmitter } from "node:events";
 import {
   activeBrowserJob,
   browserJobRunning,
+  canReuseRemoteSessionCheck,
   cancelJob,
   normalizeFlags,
   streamJobEvents,
+  validateCommandConfig,
 } from "../scripts/backend/web/jobs.mjs";
 
 test("normalizes the explicit remote session-check flag", () => {
@@ -53,6 +55,43 @@ test("recognizes every browser-backed command as profile-exclusive", () => {
     ]).id,
     "active-login",
   );
+});
+
+test("reuses one active non-interactive remote session check", () => {
+  assert.equal(
+    canReuseRemoteSessionCheck(
+      "check-session",
+      { remote: true, interactive: false },
+      { command: "check-session", remote: true, interactive: false },
+    ),
+    true,
+  );
+  assert.equal(
+    canReuseRemoteSessionCheck(
+      "check-session",
+      { remote: true, interactive: true },
+      { command: "check-session", remote: true, interactive: false },
+    ),
+    false,
+  );
+});
+
+test("requires BLACKBOARD_BASE_URL before starting any export", () => {
+  const previousNotion = process.env.NOTION_API_KEY;
+  const previousBlackboard = process.env.BLACKBOARD_BASE_URL;
+  process.env.NOTION_API_KEY = "test-token";
+  delete process.env.BLACKBOARD_BASE_URL;
+
+  try {
+    assert.equal(validateCommandConfig("export-md")?.code, "missing-blackboard-base-url");
+    assert.equal(validateCommandConfig("notion-dry-run")?.code, "missing-blackboard-base-url");
+    assert.equal(validateCommandConfig("notion-publish")?.code, "missing-blackboard-base-url");
+  } finally {
+    if (previousNotion === undefined) delete process.env.NOTION_API_KEY;
+    else process.env.NOTION_API_KEY = previousNotion;
+    if (previousBlackboard === undefined) delete process.env.BLACKBOARD_BASE_URL;
+    else process.env.BLACKBOARD_BASE_URL = previousBlackboard;
+  }
 });
 
 test("escalates cancellation even after SIGINT was successfully delivered", async () => {

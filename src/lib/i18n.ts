@@ -106,6 +106,7 @@ export const STRINGS = {
 
   // Phases
   "phase.starting":             { es: "Inicio",                                     en: "Starting" },
+  "phase.blackboard-bootstrap": { es: "Inicializando Blackboard",                    en: "Initializing Blackboard" },
   "phase.markdown":             { es: "Markdown",                                   en: "Markdown" },
   "phase.assets":               { es: "Recursos",                                   en: "Assets" },
   "phase.notion-parent":        { es: "Página padre",                               en: "Parent page" },
@@ -255,6 +256,9 @@ export const STRINGS = {
   "error.scorm.linkWrong":        { es: "El enlace SCORM no abrió el ítem esperado",  en: "The SCORM link did not open the expected item" },
   "error.scorm.linkWrong.hint":   { es: "Blackboard cambió el destino después de seleccionar su enlace. Revisa el detalle técnico y la disponibilidad del ítem.",
                                     en: "Blackboard changed the destination after selecting its link. Check technical details and item availability." },
+  "error.scorm.player":           { es: "Blackboard abrió el intento, pero no el contenido SCORM", en: "Blackboard opened the attempt, but not the SCORM content" },
+  "error.scorm.player.hint":      { es: "La aplicación detectó la transición de Blackboard, pero el reproductor o su contenido no terminó de cargarse. Reintenta; si persiste, comparte el detalle técnico.",
+                                    en: "The app detected Blackboard's transition, but the player or its content did not finish loading. Retry; if it persists, share the technical details." },
   "error.scorm.item":             { es: "No se ha encontrado el SCORM en el curso",      en: "The SCORM item was not found in the course" },
   "error.scorm.item.hint":        { es: "Blackboard ha acabado en otra página o ha cambiado el enlace. Copia de nuevo la URL del SCORM y reintenta.",
                                     en: "Blackboard ended on another page or changed the link. Copy the SCORM URL again and retry." },

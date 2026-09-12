@@ -109,9 +109,12 @@ instantánea con una comprobación remota nueva. El diálogo para SSO es un
 
 Una acción interactiva iniciada desde la web se conserva en `sessionStorage` y
 se recupera tras recargar la página. La API también expone el job activo de
-forma saneada para poder reconectarse o cancelarlo. Nunca se deben borrar a
-mano `SingletonLock` u otros ficheros del perfil: si la aplicación no puede
-recuperar un job, hay que cerrar el navegador externo y usar
+forma saneada para poder reconectarse o cancelarlo. Las comprobaciones remotas
+silenciosas concurrentes se unen al mismo job en vez de abrir otro navegador.
+El lock del perfil registra PID, comando, job y fecha saneados para distinguir
+un job activo de un lock huérfano. Nunca se deben borrar a mano `SingletonLock`
+u otros ficheros del perfil: si la aplicación no puede recuperar un job, hay
+que cerrar el navegador externo y usar
 `npm run reset-session -- --confirm` solo como respaldo reversible.
 
 `reset-session --confirm` mueve el perfil a un backup fechado en vez de
@@ -125,6 +128,11 @@ antes de `scorm/overview` cuando el usuario los pega explícitamente. El código
 nunca fabrica `outline`, `grades` o `courseId`. Si Blackboard termina en Stream
 u otra página intermedia, solo sigue un `href` renderizado de mismo origen y
 misma identidad curso/item; cero o varios candidatos son errores visibles.
+Antes de resolver la URL fuente, el exportador prepara Blackboard en la primera
+pestaña del contexto persistente. Si la fuente termina en Stream, la reintenta
+exactamente una vez y después solo admite un `href` DOM único y coincidente.
+La navegación, bootstrap y resolución saneada se guardan como metadata del
+manifest; no se guardan cookies ni queries privadas.
 
 ## Como esta estructurado Blackboard/SCORM
 
@@ -132,10 +140,16 @@ El flujo observado tiene varias capas:
 
 - Blackboard Ultra muestra el curso y el item SCORM.
 - El item puede tener boton de `Iniciar intento` o `Continuar intento`.
-- Tras iniciar/continuar, puede abrirse una pestana o frame con
-  `scormdriver/indexAPI.html`.
-- El contenido real suele vivir en un frame llamado `scormdriver_content` o en
-  una URL que contiene `/scormcontent/`.
+- Tras iniciar/continuar, Blackboard puede navegar por
+  `.../scorm/launchFrame`, abrir un popup de Rustici SCORM Engine
+  (`.../defaultui/player/modern.html`) o mantener la ruta heredada
+  `scormdriver/indexAPI.html`. Estas rutas de reproductor no siempre contienen
+  el `itemId`; se validan por su mismo origen y por pertenecer a la secuencia
+  de popup iniciada desde el intento, nunca por inventar una URL.
+- El contenido real suele vivir en un frame llamado `scormdriver_content`, en
+  una URL que contiene `/scormcontent/` o en una tercera ventana abierta por el
+  reproductor. `waitForFrame()` es asíncrona y espera esa superficie antes de
+  que el exportador lea el índice Rise o descargue assets.
 - Rise usa rutas hash como `#/preview` o hashes por leccion.
 - El indice se puede leer desde elementos como
   `.overview-list__section-title` y `a.overview-list-item__link`.

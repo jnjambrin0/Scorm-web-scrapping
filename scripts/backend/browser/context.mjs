@@ -8,14 +8,19 @@ import { promisify } from "node:util";
 import { browserProfileDir } from "../shared/paths.mjs";
 
 const execFileAsync = promisify(execFile);
+const LOCK_METADATA_GRACE_MS = 50;
 
 export class BrowserProfileBusyError extends Error {
-  constructor(profileDir) {
+  constructor(profileDir, { reason = "application-lock", owner = null } = {}) {
     super(
-      `Browser profile is already in use: ${profileDir}. Close the other Blackboard browser window and try again.`,
+      reason === "external-browser"
+        ? `Browser profile is open in an external browser: ${profileDir}. Close that Blackboard browser window and try again.`
+        : `Browser profile is already in use: ${profileDir}. Wait for the active Blackboard task or close the other Blackboard browser window and try again.`,
     );
     this.name = "BrowserProfileBusyError";
     this.code = "BROWSER_PROFILE_BUSY";
+    this.reason = reason;
+    this.owner = owner;
   }
 }
 
@@ -55,24 +60,73 @@ export async function assertNoExternalBrowserProcess(profileDir) {
   }
 
   if (externalBrowserPids(profileDir, result.stdout).length > 0) {
-    throw new BrowserProfileBusyError(path.resolve(profileDir));
+    throw new BrowserProfileBusyError(path.resolve(profileDir), {
+      reason: "external-browser",
+    });
   }
 }
 
 export async function inspectBrowserProfileUsage(profileDir = browserProfileDir()) {
   try {
     await assertNoExternalBrowserProcess(profileDir);
-    return { state: "available" };
   } catch (error) {
     if (error instanceof BrowserProfileBusyError) {
       return { state: "external-browser" };
     }
     throw error;
   }
+  const lock = await readBrowserProfileLock(profileDir);
+  if (lock && processIsAlive(lock.pid)) {
+    return { state: "application-lock", owner: publicLockOwner(lock) };
+  }
+  if (lock) {
+    return { state: "stale-lock", owner: publicLockOwner(lock) };
+  }
+  return { state: "available" };
 }
 
 function profileLockPath(profileDir) {
   return `${path.resolve(profileDir)}.lock`;
+}
+
+function sanitizeLockOwner(value) {
+  if (!value || typeof value !== "object") return null;
+  const pid = Number(value.pid);
+  if (!Number.isInteger(pid) || pid <= 0) return null;
+  return {
+    pid,
+    nonce: typeof value.nonce === "string" ? value.nonce : null,
+    createdAt: typeof value.createdAt === "string" ? value.createdAt : null,
+    command: typeof value.command === "string" ? value.command : null,
+    jobId: typeof value.jobId === "string" ? value.jobId : null,
+  };
+}
+
+function publicLockOwner(owner) {
+  return {
+    pid: owner.pid,
+    createdAt: owner.createdAt,
+    command: owner.command,
+    jobId: owner.jobId,
+  };
+}
+
+export function parseBrowserProfileLock(value) {
+  if (typeof value !== "string" || !value.trim()) return null;
+  try {
+    return sanitizeLockOwner(JSON.parse(value));
+  } catch {
+    const pid = Number(value.split(":", 1)[0]);
+    return Number.isInteger(pid) && pid > 0
+      ? { pid, nonce: null, createdAt: null, command: null, jobId: null }
+      : null;
+  }
+}
+
+export async function readBrowserProfileLock(profileDir) {
+  const lockPath = profileLockPath(profileDir);
+  const value = await fs.readFile(lockPath, "utf8").catch(() => null);
+  return value === null ? null : parseBrowserProfileLock(value);
 }
 
 function processIsAlive(pid) {
@@ -88,13 +142,20 @@ function processIsAlive(pid) {
   }
 }
 
-export async function acquireBrowserProfileLock(profileDir) {
+export async function acquireBrowserProfileLock(profileDir, metadata = {}) {
   const resolvedProfileDir = path.resolve(profileDir);
   const lockPath = profileLockPath(resolvedProfileDir);
   await fs.mkdir(path.dirname(resolvedProfileDir), { recursive: true });
 
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    const token = `${process.pid}:${crypto.randomUUID()}`;
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const owner = {
+      pid: process.pid,
+      nonce: crypto.randomUUID(),
+      createdAt: new Date().toISOString(),
+      command: metadata.command || process.env.SCORM_PROFILE_COMMAND || null,
+      jobId: metadata.jobId || process.env.SCORM_PROFILE_JOB_ID || null,
+    };
+    const token = JSON.stringify(owner);
     let handle = null;
     try {
       handle = await fs.open(lockPath, "wx");
@@ -123,13 +184,19 @@ export async function acquireBrowserProfileLock(profileDir) {
         throw error;
       }
 
-      const owner = await fs.readFile(lockPath, "utf8").catch(() => "");
-      const ownerPid = Number(owner.split(":", 1)[0]);
-      if (!owner.trim()) {
+      const existing = await readBrowserProfileLock(resolvedProfileDir);
+      if (!existing) {
+        if (attempt < 4) {
+          await new Promise((resolve) => setTimeout(resolve, LOCK_METADATA_GRACE_MS));
+          continue;
+        }
         throw new BrowserProfileBusyError(resolvedProfileDir);
       }
-      if (processIsAlive(ownerPid)) {
-        throw new BrowserProfileBusyError(resolvedProfileDir);
+      if (processIsAlive(existing.pid)) {
+        throw new BrowserProfileBusyError(resolvedProfileDir, {
+          reason: "application-lock",
+          owner: existing,
+        });
       }
 
       await fs.unlink(lockPath).catch(() => {});

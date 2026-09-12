@@ -5,6 +5,7 @@ import type { UiStatus } from "../hooks/useJob";
 
 const PHASE_KEY_TO_STRING: Record<PhaseKey, `phase.${PhaseKey}`> = {
   starting: "phase.starting",
+  "blackboard-bootstrap": "phase.blackboard-bootstrap",
   markdown: "phase.markdown",
   assets: "phase.assets",
   "notion-parent": "phase.notion-parent",
@@ -22,6 +23,7 @@ interface Props {
 
 const PUBLISH_PHASES: ReadonlyArray<PhaseKey> = [
   "starting",
+  "blackboard-bootstrap",
   "markdown",
   "assets",
   "notion-parent",
@@ -32,13 +34,19 @@ const PUBLISH_PHASES: ReadonlyArray<PhaseKey> = [
 ];
 const DRYRUN_PHASES: ReadonlyArray<PhaseKey> = [
   "starting",
+  "blackboard-bootstrap",
   "markdown",
   "assets",
   "notion-parent",
   "upload",
   "done",
 ];
-const EXPORT_MD_PHASES: ReadonlyArray<PhaseKey> = ["starting", "markdown", "done"];
+const EXPORT_MD_PHASES: ReadonlyArray<PhaseKey> = [
+  "starting",
+  "blackboard-bootstrap",
+  "markdown",
+  "done",
+];
 const MINIMAL_PHASES: ReadonlyArray<PhaseKey> = ["starting", "done"];
 
 function phasesFor(command: Command): ReadonlyArray<PhaseKey> {

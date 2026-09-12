@@ -9,6 +9,7 @@ export type JobStatus = "running" | "success" | "failed" | "cancelled";
 
 export type PhaseKey =
   | "starting"
+  | "blackboard-bootstrap"
   | "markdown"
   | "assets"
   | "notion-parent"
@@ -97,16 +98,28 @@ export interface Job {
   finalUrl: string | null;
   error: string | null;
   interactive?: boolean;
+  remote?: boolean;
 }
 
 export interface ActiveJobsResponse {
   jobs: Job[];
-  profile: { state: "available" | "external-browser" };
+  profile: {
+    state: "available" | "external-browser" | "application-lock" | "stale-lock";
+    owner?: ProfileLockOwner | null;
+  };
+}
+
+export interface ProfileLockOwner {
+  pid: number;
+  createdAt: string | null;
+  command: string | null;
+  jobId: string | null;
 }
 
 export interface ProfileBusyPayload {
-  source: "application-job" | "external-browser";
+  source: "application-job" | "external-browser" | "application-lock";
   job?: Job;
+  owner?: ProfileLockOwner | null;
 }
 
 export interface PhaseProgress {

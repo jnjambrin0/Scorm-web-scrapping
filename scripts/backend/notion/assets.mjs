@@ -12,6 +12,8 @@ import {
 import { formatBytes, safeFilename, sanitizeError } from "../shared/text.mjs";
 import { logProgress } from "./progress.mjs";
 
+const NOTION_ASSET_MANIFEST_SCHEMA_VERSION = 2;
+
 export function assetLabel(asset) {
   return path.basename(asset.source.split("?")[0]) || `asset-${asset.id}`;
 }
@@ -196,6 +198,7 @@ function manifestPath(value) {
 export async function writeAssetManifest(scormExport, assets, extra = {}) {
   await fs.mkdir(NOTION_ASSET_DIR, { recursive: true });
   const manifest = {
+    schemaVersion: NOTION_ASSET_MANIFEST_SCHEMA_VERSION,
     generatedAt: new Date().toISOString(),
     sourceMarkdown: manifestPath(scormExport.outPath),
     sourceManifest: manifestPath(scormExport.exportManifestPath),
@@ -236,7 +239,10 @@ export async function applyCachedAssetManifest(assets, scormExport) {
     // Legacy asset manifests have no trustworthy source identity. Their
     // sourceManifest path may now point at a newer export, so refusing reuse
     // is safer than risking cross-course media contamination.
-    if (manifest.sourceUrlIdentity !== scormExport.sourceUrlIdentity) {
+    if (
+      manifest.schemaVersion !== NOTION_ASSET_MANIFEST_SCHEMA_VERSION ||
+      manifest.sourceUrlIdentity !== scormExport.sourceUrlIdentity
+    ) {
       return 0;
     }
   } else if (
@@ -297,7 +303,7 @@ export async function downloadAssets(context, scormExport, assets) {
     );
   }
 
-  const frame = needsDownload ? waitForFrame(await openScorm(context)) : null;
+  const frame = needsDownload ? await waitForFrame(await openScorm(context)) : null;
   if (frame) {
     logProgress("SCORM frame is ready for authenticated asset downloads.");
   }

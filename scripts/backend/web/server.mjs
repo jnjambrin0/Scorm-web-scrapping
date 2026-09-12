@@ -4,6 +4,7 @@ import { inspectBrowserProfileUsage } from "../browser/context.mjs";
 import { DEFAULT_NOTION_PARENT_PAGE_TITLE } from "../shared/env.mjs";
 import {
   activeBrowserJob,
+  canReuseRemoteSessionCheck,
   cancelJob,
   configStatus,
   createJob,
@@ -76,6 +77,11 @@ async function handleApi(request, response, url) {
 
     const activeJob = activeBrowserJob();
     if (activeJob) {
+      const flags = normalizeFlags(body.flags);
+      if (canReuseRemoteSessionCheck(command, flags, activeJob)) {
+        writeJson(response, 200, serializeJob(activeJob));
+        return;
+      }
       writeJson(
         response,
         409,
@@ -97,6 +103,13 @@ async function handleApi(request, response, url) {
         error:
           "El perfil de Blackboard está abierto en otra ventana de navegador. Ciérrala y vuelve a intentarlo.",
         busy: { source: "external-browser" },
+      });
+      return;
+    }
+    if (profile.state === "application-lock") {
+      writeJson(response, 409, {
+        error: "El perfil de Blackboard está ocupado por otra tarea local.",
+        busy: { source: "application-lock", owner: profile.owner },
       });
       return;
     }
