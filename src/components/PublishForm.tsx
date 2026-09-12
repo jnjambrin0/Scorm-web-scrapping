@@ -42,7 +42,7 @@ export function PublishForm({ form, disabled, loadingCommand, onSubmit }: Props)
   };
 
   return (
-    <Card tone="neutral" elevation={2} padding="xl">
+    <Card tone="neutral" elevation={1} padding="lg">
       <header className="mb-7">
         <h1 className="text-title1 font-semibold tracking-tight text-ink">
           {t("hero.title")}
@@ -53,7 +53,7 @@ export function PublishForm({ form, disabled, loadingCommand, onSubmit }: Props)
       </header>
 
       <SectionLabel>{t("section.source")}</SectionLabel>
-      <div id={fieldId("courseOutlineUrl")}>
+      <div id={fieldId("courseOutlineUrl")} className="max-w-4xl">
         <Field
           label={t("field.courseUrl.label")}
           hint={t("field.courseUrl.help")}

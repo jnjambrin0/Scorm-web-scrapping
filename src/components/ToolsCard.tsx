@@ -20,14 +20,14 @@ export function ToolsCard({
 }: Props) {
   const t = useT();
   return (
-    <section aria-labelledby="tools-title">
-      <header className="mb-3">
+    <section aria-labelledby="tools-title" className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-line-soft bg-surface p-5 sm:p-6">
+      <header>
         <h2 id="tools-title" className="text-subhead font-semibold text-ink">
           {t("tools.title")}
         </h2>
         <p className="text-caption1 text-ink-muted">{t("tools.subtitle")}</p>
       </header>
-      <div className="grid gap-3 sm:max-w-sm">
+      <div className="grid w-full gap-2 sm:w-auto sm:grid-cols-2">
         <Button
           variant="secondary"
           size="md"

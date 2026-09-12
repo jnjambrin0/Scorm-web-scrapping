@@ -7,6 +7,8 @@ import type {
   PhaseEvent,
   ProfileBusyPayload,
   SummaryEvent,
+  QueueSnapshot,
+  QueueMutation,
 } from "./types";
 
 const BASE = "/api";
@@ -14,11 +16,13 @@ const BASE = "/api";
 export class ApiError extends Error {
   status: number;
   busy: ProfileBusyPayload | null;
-  constructor(message: string, status: number, busy: ProfileBusyPayload | null = null) {
+  code: string | null;
+  constructor(message: string, status: number, busy: ProfileBusyPayload | null = null, code: string | null = null) {
     super(message);
     this.name = "ApiError";
     this.status = status;
     this.busy = busy;
+    this.code = code;
   }
 }
 
@@ -27,17 +31,22 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (!response.ok) {
     const payload = (await response
       .json()
-      .catch(() => null)) as { error?: string; busy?: ProfileBusyPayload } | null;
+      .catch(() => null)) as { error?: string; busy?: ProfileBusyPayload; code?: string } | null;
     throw new ApiError(
       payload?.error || `La petición ha fallado (${response.status}).`,
       response.status,
       payload?.busy || null,
+      payload?.code || null,
     );
   }
   return (await response.json()) as T;
 }
 
 export const api = {
+  queues: () => request<QueueSnapshot>("/queues"),
+  mutateQueue: (req: QueueMutation & { revision: number; operationId: string }) => request<QueueSnapshot>("/queues", {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(req),
+  }),
   defaults: () => request<Defaults>("/config/defaults"),
   startJob: (req: JobRequest) =>
     request<Job>("/jobs", {

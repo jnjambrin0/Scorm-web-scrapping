@@ -99,6 +99,61 @@ export interface Job {
   error: string | null;
   interactive?: boolean;
   remote?: boolean;
+  errorCode?: string | null;
+  queueBatchId?: string | null;
+  queueItemId?: string | null;
+}
+
+export interface QueueConfig {
+  url: string;
+  title: string;
+  parentTitle: string;
+  parentId: string;
+  scormTitle: string;
+  refresh: boolean;
+  paidPlan: boolean;
+  mediaWidthRatio: number;
+}
+export type QueueItemStatus = "pending" | "running" | "success" | "failed" | "cancelled" | "incomplete" | "interrupted" | "blocked";
+export interface QueueAttempt {
+  id: string;
+  jobId: string;
+  status: QueueItemStatus;
+  startedAt: string;
+  finishedAt: string | null;
+  publicationStage: string;
+  notionPageUrl?: string | null;
+  title?: string;
+  error?: string;
+  errorCode?: string | null;
+  summary?: JobSummary;
+}
+export interface QueueItem {
+  id: string;
+  config: QueueConfig;
+  status: QueueItemStatus;
+  attempts: QueueAttempt[];
+  job: Job | null;
+}
+export interface QueueBatch {
+  id: string;
+  createdAt: string;
+  status: "draft" | "running" | "paused" | "completed" | "stopped";
+  reason: string | null;
+  items: QueueItem[];
+}
+export interface QueueSnapshot {
+  revision: number;
+  storageError: string | null;
+  batches: QueueBatch[];
+}
+export interface QueueMutation {
+  action: "create" | "add" | "edit" | "remove" | "reorder" | "start" | "resume" | "pause" | "cancel-current" | "stop" | "retry";
+  batchId?: string;
+  itemId?: string;
+  config?: QueueConfig;
+  order?: string[];
+  confirmNewPage?: boolean;
 }
 
 export interface ActiveJobsResponse {

@@ -652,16 +652,17 @@ export async function openScorm(context) {
   return scormPage;
 }
 
-function contentFrameOnPage(page) {
-  return (
-    page.frames().find(
-      (candidate) =>
-        candidate.name() === "scormdriver_content" &&
-        !/^about:blank(?:#.*)?$/i.test(candidate.url()),
-    ) ||
-    page.frames().find((candidate) => /\/scormcontent(?:\/|$)/i.test(candidate.url())) ||
-    null
-  );
+async function isContentFrame(frame) {
+  if (frame.isDetached()) return false;
+  return frame.evaluate((namedContent) => {
+    if (!/^https?:$/.test(location.protocol) || document.readyState === "loading" || !document.body?.childElementCount) return false;
+    // Blackboard first inserts a driver/bootstrap document into this same named
+    // iframe. Its existence is not evidence that the SCO has loaded yet.
+    if (/\/scormdriver(?:\/|$)|\/scorm\/launchFrame(?:\/|$)|\/defaultui\/player\//i.test(location.pathname)) return false;
+    if (document.querySelector('input[type="password"], form[action*="login"]')) return false;
+    return /\/scormcontent(?:\/|$)/i.test(location.pathname) ||
+      (namedContent && !!document.querySelector("a.overview-list-item__link, .lesson__content, [data-block-id]"));
+  }, frame.name() === "scormdriver_content").catch(() => false);
 }
 
 function pageOrigin(page) {
@@ -684,11 +685,14 @@ async function isDescendantPopup(candidate, ancestor) {
 }
 
 async function contentFrameInLaunchFamily(page) {
-  const ownFrame = contentFrameOnPage(page);
-  if (ownFrame) return ownFrame;
-
   const origin = pageOrigin(page);
   if (!origin) return null;
+  const content = [];
+  if (!page.isClosed()) {
+    for (const frame of page.frames()) {
+      if (await isContentFrame(frame)) content.push(frame);
+    }
+  }
   const candidates = page
     .context()
     .pages()
@@ -698,15 +702,19 @@ async function contentFrameInLaunchFamily(page) {
     if (pageOrigin(candidate) !== origin) continue;
     if (!/\/scormcontent(?:\/|$)/i.test(candidate.url())) continue;
     if (await isDescendantPopup(candidate, page)) {
-      return candidate.mainFrame();
+      if (await isContentFrame(candidate.mainFrame())) content.push(candidate.mainFrame());
     }
   }
-  return null;
+  if (content.length > 1) throw new Error("SCORM player opened multiple usable content surfaces; refusing to select one arbitrarily.");
+  return content[0] || null;
 }
 
 export async function waitForFrame(page, { timeout = CONTENT_FRAME_TIMEOUT_MS } = {}) {
   const deadline = Date.now() + timeout;
   while (Date.now() < deadline) {
+    if (!page.context().pages().some((candidate) => !candidate.isClosed())) {
+      throw new Error("SCORM content window was closed before its content became ready.");
+    }
     const frame = await contentFrameInLaunchFamily(page);
     if (frame) return frame;
     await delay(POLL_INTERVAL_MS);

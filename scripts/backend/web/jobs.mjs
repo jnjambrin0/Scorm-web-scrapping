@@ -1,5 +1,7 @@
 import { spawn } from "node:child_process";
 import crypto from "node:crypto";
+import { EventEmitter } from "node:events";
+import { jobFailureCode } from "../shared/job-failure.mjs";
 
 import {
   configuredBlackboardBaseUrl,
@@ -122,6 +124,7 @@ export function configStatus() {
 }
 
 const jobs = new Map();
+export const jobEvents = new EventEmitter();
 
 export function getJob(id) {
   return jobs.get(id) || null;
@@ -219,6 +222,7 @@ function commandArgs(command, flags) {
 }
 
 export function serializeJob(job) {
+  if (!job) return null;
   return {
     id: job.id,
     command: job.command,
@@ -233,6 +237,9 @@ export function serializeJob(job) {
     error: job.error,
     interactive: Boolean(job.interactive),
     remote: Boolean(job.remote),
+    errorCode: job.errorCode || null,
+    queueBatchId: job.queueBatchId || null,
+    queueItemId: job.queueItemId || null,
   };
 }
 
@@ -428,8 +435,7 @@ function shouldStreamStdoutLine(command, line) {
   return /^(Final report:|Parent page:|Created page:|Status:)/.test(line);
 }
 
-export function createJob({ command, envOverrides, flags }) {
-  const id = crypto.randomUUID();
+export function createJob({ id = crypto.randomUUID(), command, envOverrides = {}, flags = {}, queueBatchId = null, queueItemId = null, onCheckpoint, spawnProcess = spawn }) {
   const job = {
     id,
     command,
@@ -451,7 +457,11 @@ export function createJob({ command, envOverrides, flags }) {
     cancelRequested: false,
     interactive: Boolean(flags.interactive),
     remote: Boolean(flags.remote),
+    queueBatchId,
+    queueItemId,
   };
+  let resolveCompletion;
+  job.completion = new Promise((resolve) => { resolveCompletion = resolve; });
   jobs.set(id, job);
 
   addEvent(job, "phase", {
@@ -469,12 +479,28 @@ export function createJob({ command, envOverrides, flags }) {
     childEnv.BLACKBOARD_URL = envOverrides.COURSE_OUTLINE_URL;
   }
 
-  const child = spawn(process.execPath, commandArgs(command, flags), {
+  const child = spawnProcess(process.execPath, commandArgs(command, flags), {
     cwd: ROOT,
     env: childEnv,
-    stdio: ["ignore", "pipe", "pipe"],
+    stdio: onCheckpoint ? ["ignore", "pipe", "pipe", "ipc"] : ["ignore", "pipe", "pipe"],
   });
   job.child = child;
+  let persistence = Promise.resolve();
+  let checkpointError = null;
+  if (onCheckpoint) {
+    child.on("message", (message) => {
+      if (message?.type !== "checkpoint") return;
+      persistence = persistence.then(async () => {
+        try {
+          await onCheckpoint({ ...message, ...(message.stage === "worker-start" ? { pid: child.pid } : {}) });
+          if (child.connected) child.send({ type: "checkpoint-ack", requestId: message.requestId, ok: true }, () => {});
+        } catch (error) {
+          checkpointError = error;
+          if (child.connected) child.send({ type: "checkpoint-ack", requestId: message.requestId, ok: false }, () => {});
+        }
+      });
+    });
+  }
 
   splitLines(child.stdout, (line) => {
     job.stdout += `${line}\n`;
@@ -488,9 +514,10 @@ export function createJob({ command, envOverrides, flags }) {
   });
 
   let finalized = false;
-  const finalize = (code, signal, spawnError = null) => {
+  const finalize = async (code, signal, spawnError = null) => {
     if (finalized) return;
     finalized = true;
+    await persistence;
     job.exitCode = code;
     job.signal = signal;
     job.finishedAt = new Date().toISOString();
@@ -509,9 +536,9 @@ export function createJob({ command, envOverrides, flags }) {
     if (job.cancelRequested) {
       job.status = "cancelled";
       job.error = "Job cancelled.";
-    } else if (spawnError) {
+    } else if (spawnError || checkpointError) {
       job.status = "failed";
-      job.error = sanitizeText(spawnError.message || "Could not start job.");
+      job.error = sanitizeText((spawnError || checkpointError).message || "Could not start job.");
       addEvent(job, "error", { message: job.error });
     } else if (code === 0) {
       job.status = "success";
@@ -525,11 +552,16 @@ export function createJob({ command, envOverrides, flags }) {
       addEvent(job, "error", { message: job.error });
     }
 
+    job.errorCode = checkpointError ? "queue-storage" : job.status === "failed" ? jobFailureCode(job.error) : null;
     addEvent(job, "done", { job: serializeJob(job) });
+    resolveCompletion(job);
+    jobEvents.emit("done", job);
   };
 
-  child.on("close", (code, signal) => finalize(code, signal));
-  child.on("error", (error) => finalize(null, null, error));
+  // Spawn failures also emit close. Keep a single terminal event after stdio drains.
+  let spawnError = null;
+  child.on("error", (error) => { spawnError = error; });
+  child.on("close", (code, signal) => { void finalize(code, signal, spawnError); });
 
   return job;
 }

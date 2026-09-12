@@ -25,7 +25,7 @@ export function TopBar({
   const t = useT();
   return (
     <header className="sticky top-0 z-[var(--z-sticky)] -mx-4 mb-6 px-4 py-3 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">
-      <div className="surface mx-auto flex max-w-[1200px] flex-wrap items-center justify-between gap-3 rounded-full px-3 py-1.5 sm:px-4">
+      <div className="surface mx-auto flex max-w-[1200px] flex-wrap items-center justify-between gap-3 rounded-xl px-4 py-3 sm:px-5">
         <div className="flex min-w-0 items-center gap-3">
           <img
             src="/favicon.svg"

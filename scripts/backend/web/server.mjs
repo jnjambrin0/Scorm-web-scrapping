@@ -1,4 +1,12 @@
 import http from "node:http";
+import path from "node:path";
+import crypto from "node:crypto";
+import { sanitizeText } from "../shared/text.mjs";
+import { safeDiagnostic } from "../shared/job-failure.mjs";
+import { ROOT } from "../shared/paths.mjs";
+import { createAdmission } from "./admission.mjs";
+import { QueueManager } from "./queues.mjs";
+import { fileQueueStore } from "./queue-store.mjs";
 
 import { inspectBrowserProfileUsage } from "../browser/context.mjs";
 import { DEFAULT_NOTION_PARENT_PAGE_TITLE } from "../shared/env.mjs";
@@ -8,6 +16,7 @@ import {
   cancelJob,
   configStatus,
   createJob,
+  jobEvents,
   getJob,
   normalizeEnvOverrides,
   normalizeFlags,
@@ -25,6 +34,11 @@ import {
 
 const HOST = process.env.WEB_HOST || "127.0.0.1";
 const PORT = Number(process.env.WEB_PORT || 8787);
+const admission = createAdmission({ active: activeBrowserJob, inspect: inspectBrowserProfileUsage,
+  create: createJob, serialize: serializeJob, reuse: canReuseRemoteSessionCheck,
+  reserved: () => queues.reserved() || !!queues.storageError });
+const queues = new QueueManager({ store: fileQueueStore(path.join(ROOT, ".local-state", "queues.json")),
+  admission, cancel: cancelJob, getJob, serializeJob, validate: validateCommandConfig });
 
 const SUPPORTED_COMMANDS = new Set([
   "check-session",
@@ -47,6 +61,15 @@ function loadSafeDefaults() {
 }
 
 async function handleApi(request, response, url) {
+  if (url.pathname === "/api/queues/events" && request.method === "GET") {
+    queues.stream(request, response); return;
+  }
+  if (url.pathname === "/api/queues" && request.method === "GET") {
+    writeJson(response, 200, queues.snapshot()); return;
+  }
+  if (url.pathname === "/api/queues" && request.method === "POST") {
+    writeJson(response, 200, await queues.mutate(await readRequestBody(request))); return;
+  }
   if (url.pathname === "/api/config/defaults" && request.method === "GET") {
     writeJson(response, 200, loadSafeDefaults());
     return;
@@ -75,46 +98,7 @@ async function handleApi(request, response, url) {
       return;
     }
 
-    const activeJob = activeBrowserJob();
-    if (activeJob) {
-      const flags = normalizeFlags(body.flags);
-      if (canReuseRemoteSessionCheck(command, flags, activeJob)) {
-        writeJson(response, 200, serializeJob(activeJob));
-        return;
-      }
-      writeJson(
-        response,
-        409,
-        {
-          error:
-            "Hay una tarea de Blackboard aún activa. Recupérala o cancélala antes de iniciar otra.",
-          busy: {
-            source: "application-job",
-            job: serializeJob(activeJob),
-          },
-        },
-      );
-      return;
-    }
-
-    const profile = await inspectBrowserProfileUsage();
-    if (profile.state === "external-browser") {
-      writeJson(response, 409, {
-        error:
-          "El perfil de Blackboard está abierto en otra ventana de navegador. Ciérrala y vuelve a intentarlo.",
-        busy: { source: "external-browser" },
-      });
-      return;
-    }
-    if (profile.state === "application-lock") {
-      writeJson(response, 409, {
-        error: "El perfil de Blackboard está ocupado por otra tarea local.",
-        busy: { source: "application-lock", owner: profile.owner },
-      });
-      return;
-    }
-
-    const job = createJob({
+    const job = await admission.start({
       command,
       envOverrides: normalizeEnvOverrides(body.envOverrides),
       flags: normalizeFlags(body.flags),
@@ -142,6 +126,11 @@ async function handleApi(request, response, url) {
     }
 
     if (jobMatch[2] === "cancel" && request.method === "POST") {
+      if (job.queueBatchId && job.status === "running") {
+        await queues.mutate({ action: "cancel-current", batchId: job.queueBatchId,
+          revision: queues.snapshot().revision, operationId: crypto.randomUUID() });
+        writeJson(response, 200, { cancelled: true, job: serializeJob(job) }); return;
+      }
       const cancelled = cancelJob(job);
       writeJson(response, 200, {
         cancelled,
@@ -154,8 +143,11 @@ async function handleApi(request, response, url) {
   writeError(response, 404, "API route not found.");
 }
 
+let markReady;
+const ready = new Promise((resolve) => { markReady = resolve; });
 const server = http.createServer(async (request, response) => {
   try {
+    await ready;
     const url = new URL(request.url || "/", `http://${request.headers.host || HOST}`);
     if (url.pathname.startsWith("/api/")) {
       await handleApi(request, response, url);
@@ -165,22 +157,38 @@ const server = http.createServer(async (request, response) => {
     await serveStatic(request, response, url);
   } catch (error) {
     if (!response.headersSent) {
-      writeError(response, 500, error.message || "Internal server error.");
+      writeJson(response, error.status || 500, { error: safeDiagnostic(sanitizeText(error.message || "Internal server error.")), code: error.code || null, busy: error.busy || null });
     } else {
       response.end();
     }
   }
 });
 
-server.listen(PORT, HOST, () => {
-  console.log(`SCORM to Notion API listening on http://${HOST}:${PORT}`);
+await new Promise((resolve, reject) => {
+  server.once("error", reject);
+  server.listen(PORT, HOST, resolve);
 });
+await queues.init();
+jobEvents.on("done", () => queues.kick());
+markReady();
+console.log(`SCORM to Notion API listening on http://${HOST}:${PORT}`);
 
-function shutdown() {
-  for (const job of runningJobs()) {
+let shuttingDown = false;
+async function shutdown() {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  admission.stop();
+  await queues.shutdown();
+  const active = runningJobs();
+  for (const job of active) {
     cancelJob(job);
   }
-  server.close(() => process.exit(0));
+  server.close();
+  await Promise.all(active.map((job) => job.completion));
+  await queues.tail;
+  await queues.store.release?.();
+  server.closeAllConnections();
+  process.exit(0);
 }
 
 process.once("SIGINT", shutdown);

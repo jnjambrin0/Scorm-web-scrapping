@@ -33,6 +33,7 @@ bloques de Notion con imágenes, vídeos, tablas y listas.
   - [3. Copia la URL de la unidad](#3-copia-la-url-de-la-unidad)
   - [4. Publica en Notion](#4-publica-en-notion)
 - [Ajustes opcionales](#ajustes-opcionales)
+- [Cola de publicaciones](#cola-de-publicaciones)
 - [Solución de problemas](#solución-de-problemas)
 - [Seguridad](#seguridad)
 - [Referencia técnica](#referencia-técnica)
@@ -312,6 +313,42 @@ De vuelta en la app local:
    1 y 5 minutos por unidad.
 7. Al terminar pulsa el botón verde **Abrir página en Notion** para verla en
    tu workspace.
+
+## Cola de publicaciones
+
+Abre **Cola**, crea un lote y añade las URLs. Cada elemento tiene su propio
+título opcional y página padre de Notion. Si no indicas título, se usa el del
+temario. Los ajustes se guardan al añadirlo; cambiar Ajustes después no cambia
+los elementos que ya están en la lista.
+
+Pulsa **Iniciar cola** para publicar. Puedes añadir, editar, quitar y reordenar
+los pendientes mientras avanza. El límite es de **10 elementos por lote**, con
+los terminados incluidos: quitar un pendiente libera una plaza; terminarlo no.
+Se ejecuta una publicación completa cada vez, incluida la subida a Notion.
+
+- **Pausar después de esta** conserva el trabajo actual y no arranca el siguiente.
+- **Cancelar actual** cancela esa publicación y pausa los pendientes.
+- **Detener cola** cancela el actual y los pendientes; conserva las páginas creadas.
+- Un error de temario queda registrado y la cola continúa. Si hace falta login
+  o el perfil está ocupado, la cola se pausa con una acción de recuperación.
+
+Puedes recargar o cerrar la pestaña: la cola sigue mientras el servidor local
+permanezca abierto. Si reinicias `npm run dev`, se recupera pausada. Un trabajo
+interrumpido no se repite automáticamente, porque puede haber creado una página
+en Notion. Revisa el resultado y el destino antes de reintentarlo.
+
+Al terminar aparece el resumen con resultados y enlaces. Una publicación
+incompleta conserva su enlace; reintentar crea otra página, no repara ni borra
+la anterior. Los lotes anteriores quedan disponibles en la misma vista.
+
+La cola se guarda en `.local-state/queues.json`, fuera de la caché `exports/` y
+excluida de Git. Contiene URLs y destinos introducidos por ti y resultados,
+sin cookies ni credenciales. No borres este archivo para resolver un bloqueo
+del navegador. Si el almacenamiento falla, corrígelo y reinicia el servidor:
+la aplicación conserva el archivo y no inicia nuevas publicaciones.
+
+La cola publica en Notion y nunca activa «borrar después de validar».
+Markdown y dry-run siguen en la vista individual.
 
 ## Ajustes opcionales
 

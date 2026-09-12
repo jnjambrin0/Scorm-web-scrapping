@@ -277,6 +277,7 @@ export function useSessionCheck(): UseSessionCheck {
         if (
           !cancelled &&
           !job &&
+          active.jobs.length === 0 &&
           (active.profile.state === "external-browser" || active.profile.state === "application-lock")
         ) {
           setCheckedAt(new Date());

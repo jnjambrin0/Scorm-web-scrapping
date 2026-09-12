@@ -2,7 +2,8 @@ import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 
-import { openScorm, waitForFrame } from "../scorm/navigation.mjs";
+import { openScorm } from "../scorm/navigation.mjs";
+import { downloadAssetFromPlayer } from "./asset-download.mjs";
 import { scormSourceIdentity } from "../scorm/urls.mjs";
 import {
   NOTION_ASSET_DIR,
@@ -208,11 +209,15 @@ export async function writeAssetManifest(scormExport, assets, extra = {}) {
     assets,
     ...extra,
   };
-  await fs.writeFile(
-    NOTION_ASSET_MANIFEST_PATH,
-    `${JSON.stringify(manifest, null, 2)}\n`,
-    "utf8",
-  );
+  const temporary = `${NOTION_ASSET_MANIFEST_PATH}.${crypto.randomUUID()}.tmp`;
+  try {
+    const file = await fs.open(temporary, "wx", 0o600);
+    try {
+      await file.writeFile(`${JSON.stringify(manifest, null, 2)}\n`);
+      await file.sync();
+    } finally { await file.close(); }
+    await fs.rename(temporary, NOTION_ASSET_MANIFEST_PATH);
+  } finally { await fs.unlink(temporary).catch(() => {}); }
 }
 
 async function fileExists(filePath) {
@@ -272,14 +277,16 @@ export async function applyCachedAssetManifest(assets, scormExport) {
       continue;
     }
 
-    if (!(await fileExists(cached.localPath))) {
+    const localPath = path.isAbsolute(cached.localPath) ? cached.localPath : path.resolve(ROOT, cached.localPath);
+    const stat = await fs.stat(localPath).catch(() => null);
+    if (!stat?.isFile() || stat.size === 0 || stat.size !== cached.size) {
       continue;
     }
 
     asset.mime = cached.mime;
     asset.size = cached.size;
     asset.sha256 = cached.sha256;
-    asset.localPath = cached.localPath;
+    asset.localPath = localPath;
     asset.statusCode = cached.statusCode;
     asset.status = "downloaded";
     asset.duplicateOf = cached.duplicateOf;
@@ -289,8 +296,13 @@ export async function applyCachedAssetManifest(assets, scormExport) {
   return restoredAssets;
 }
 
-export async function downloadAssets(context, scormExport, assets) {
-  await fs.mkdir(NOTION_ASSET_DIR, { recursive: true });
+export async function downloadAssets(context, scormExport, assets, {
+  assetDir = NOTION_ASSET_DIR,
+  openPlayer = openScorm,
+  saveManifest = writeAssetManifest,
+  downloadOptions,
+} = {}) {
+  await fs.mkdir(assetDir, { recursive: true });
   const pendingAssets = assets.filter(
     (asset) => asset.absoluteUrl && asset.status !== "downloaded",
   );
@@ -303,10 +315,7 @@ export async function downloadAssets(context, scormExport, assets) {
     );
   }
 
-  const frame = needsDownload ? await waitForFrame(await openScorm(context)) : null;
-  if (frame) {
-    logProgress("SCORM frame is ready for authenticated asset downloads.");
-  }
+  const player = needsDownload ? await openPlayer(context) : null;
 
   let pendingIndex = 0;
   for (const asset of assets) {
@@ -315,63 +324,52 @@ export async function downloadAssets(context, scormExport, assets) {
     }
     pendingIndex += 1;
     const label = assetLabel(asset);
+    let stopError = null;
+    delete asset.error;
+    delete asset.statusCode;
+    delete asset.finalUrl;
 
     try {
       logProgress(
         `Downloading asset ${pendingIndex}/${pendingAssets.length}: ${label} (${asset.kind}).`,
       );
-      const response = await frame.evaluate(async (source) => {
-        const assetResponse = await fetch(source, { credentials: "include" });
-        const buffer = await assetResponse.arrayBuffer();
-        let binary = "";
-        const bytes = new Uint8Array(buffer);
-        for (let index = 0; index < bytes.length; index += 0x8000) {
-          binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000));
-        }
-
-        return {
-          ok: assetResponse.ok,
-          status: assetResponse.status,
-          url: assetResponse.url,
-          mime: assetResponse.headers.get("content-type") || "",
-          base64: btoa(binary),
-        };
-      }, asset.source);
-
+      const response = await downloadAssetFromPlayer(player, asset, downloadOptions);
       asset.statusCode = response.status;
-      asset.finalUrl = response.url;
+      asset.finalUrl = response.finalUrl;
+      asset.diagnostic = response.diagnostic;
       if (!response.ok) {
         asset.status = "download_failed";
-        logProgress(
-          `Download failed for ${label}: HTTP ${response.status}.`,
-        );
-        continue;
+        asset.error = `${response.diagnostic.category}${response.status ? `; HTTP ${response.status}` : ""}; attempts ${response.diagnostic.attempts.length}`;
+        logProgress(`Download failed for ${label}: ${asset.error}.`);
+        if (response.diagnostic.category === "session-required") {
+          stopError = new Error(`SESSION_INVALID: Blackboard session expired while downloading ${label}.`);
+        } else if (["browser-closed", "content-not-ready"].includes(response.diagnostic.category)) {
+          stopError = new Error(`SCORM asset download stopped: ${response.diagnostic.category}; ${label}.`);
+        }
+      } else {
+        asset.mime = response.mime || mimeFromFilename(asset.source);
+        const buffer = Buffer.from(response.base64, "base64");
+        const localPath = path.join(assetDir, localNameForAsset(asset));
+        const temporary = `${localPath}.${crypto.randomUUID()}.part`;
+        try {
+          await fs.writeFile(temporary, buffer);
+          await fs.rename(temporary, localPath);
+        } finally { await fs.unlink(temporary).catch(() => {}); }
+        asset.size = buffer.byteLength;
+        asset.sha256 = crypto.createHash("sha256").update(buffer).digest("hex");
+        asset.localPath = localPath;
+        asset.status = "downloaded";
+        logProgress(`Downloaded asset ${pendingIndex}/${pendingAssets.length}: ${label} (${asset.mime}, ${formatBytes(asset.size)}).`);
       }
-
-      asset.mime = response.mime.split(";")[0].trim() || mimeFromFilename(asset.source);
-      if (!isExpectedAssetMime(asset, asset.mime)) {
-        asset.status = "download_failed";
-        asset.error = `Unexpected MIME type: ${asset.mime}`;
-        logProgress(
-          `Download failed for ${label}: unexpected MIME type ${asset.mime}.`,
-        );
-        continue;
-      }
-
-      const buffer = Buffer.from(response.base64, "base64");
-      asset.size = buffer.byteLength;
-      asset.sha256 = crypto.createHash("sha256").update(buffer).digest("hex");
-      asset.localPath = path.join(NOTION_ASSET_DIR, localNameForAsset(asset));
-      await fs.writeFile(asset.localPath, buffer);
-      asset.status = "downloaded";
-      logProgress(
-        `Downloaded asset ${pendingIndex}/${pendingAssets.length}: ${label} (${asset.mime}, ${formatBytes(asset.size)}).`,
-      );
     } catch (error) {
       asset.status = "download_failed";
-      asset.error = sanitizeError(error);
+      asset.error = `local-write-failed: ${error.code || "unknown"}`;
+      asset.diagnostic = { ...asset.diagnostic, category: "local-write-failed" };
       logProgress(`Download failed for ${label}: ${asset.error}`);
+      stopError = new Error(`SCORM asset could not be saved locally: ${label}; ${error.code || "unknown"}.`);
     }
+    await saveManifest(scormExport, assets);
+    if (stopError) throw stopError;
   }
 
   const firstUploadByHash = new Map();
@@ -388,9 +386,16 @@ export async function downloadAssets(context, scormExport, assets) {
     }
   }
 
-  await writeAssetManifest(scormExport, assets);
+  await saveManifest(scormExport, assets);
   logProgress(`Asset manifest written: ${NOTION_ASSET_MANIFEST_PATH}`);
   return assets;
+}
+
+export function assertAssetsReadyForPublish(assets) {
+  const failed = assets.filter((asset) => asset.status !== "downloaded" && asset.uploadStatus !== "skipped_size_limit");
+  if (!failed.length) return;
+  const details = failed.slice(0, 5).map((asset) => `${assetLabel(asset)} [${asset.error || asset.diagnostic?.category || asset.status}]`);
+  throw new Error(`Cannot publish: ${failed.length} assets failed to download. ${details.join("; ")}${failed.length > 5 ? "; see asset manifest for remaining failures" : ""}.`);
 }
 
 export function assetMapBySource(assets) {

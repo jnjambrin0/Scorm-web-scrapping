@@ -9,6 +9,7 @@ test-results/
 .auth/
 exports/
 artifacts/
+.local-state/
 
 .DS_Store
 

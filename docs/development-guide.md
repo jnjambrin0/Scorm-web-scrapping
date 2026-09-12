@@ -21,6 +21,55 @@ El flujo actual tiene tres capas:
 
 ## Estructura modular del backend
 
+### Cola persistente y coordinacion de trabajos
+
+`web/queues.mjs` es la autoridad de los lotes; React solo envia operaciones y
+representa snapshots. La cola admite diez elementos por lote, incluidos los
+terminados, y ejecuta cada publicacion completa secuencialmente. No adelantar el
+siguiente scrape al cierre de Chromium: los manifests y assets siguen compartidos
+durante la publicacion a Notion.
+
+`web/admission.mjs` serializa la comprobacion del perfil y el spawn para todos
+los trabajos HTTP y la cola. `jobs.mjs` resuelve `job.completion` en `close`, una
+sola vez y despues de drenar stdout e IPC. Cancelar envia SIGINT y escala a
+SIGTERM; el servidor y el launcher de desarrollo esperan el cierre de los hijos.
+
+La persistencia de `.local-state/queues.json` usa revision global, operationId
+idempotente y reemplazo mediante temporal sincronizado. Se confirma la operacion
+solo tras guardar. Los cambios concurrentes obsoletos reciben 409 y la interfaz
+recupera el snapshot. No almacenar process.env, logs sin filtrar o credenciales.
+El archivo es independiente de la promocion o limpieza de exports.
+El servidor reserva el puerto antes de recuperar estado y adquiere una reserva
+de escritor unica junto al archivo. Una segunda instancia, incluso en otro
+puerto, no puede reescribir la cola activa. Solo se recupera automaticamente la
+reserva de un PID muerto; nunca se retira la de un proceso vivo.
+
+API: `GET /api/queues` devuelve revision, storageError y batches; `POST /api/queues`
+recibe operationId, revision y action (`create`, `add`, `edit`, `remove`, `reorder`,
+`start`, `resume`, `pause`, `cancel-current`, `stop`, `retry`), mas batchId/itemId,
+config/order segun corresponda. El retry de una publicacion incierta requiere
+`confirmNewPage: true`. `GET /api/queues/events` envia snapshots SSE con revision
+como id y heartbeat: una conexion nueva recibe siempre el estado completo,
+incluyendo cuando Last-Event-ID predataba el reinicio. Suscribirse nunca ejecuta.
+
+Los checkpoints IPC `worker-start`, `creating-page`, `page-created`, `completed`
+esperan ACK durable del coordinador antes de continuar. El checkpoint de pagina
+retiene ID y enlace aunque falle appendBlocks y el siguiente temario reemplace
+la cache. Los errores estructurados `session-required` y `profile-busy` pausan;
+los fallos de un temario se registran y permiten continuar. Una respuesta perdida
+al crear la pagina es ambigua: no garantizar exactly-once ni reintentar sola.
+
+Al reiniciar se restauran los lotes pausados; un intento activo sin checkpoint
+completed queda interrumpido. Se comprueba que no sobreviva su PID antes de abrir
+otro worker, sin matar procesos automaticamente. Los checkpoints completed pueden
+recuperarse como exito aunque se perdiera la respuesta final. El almacenamiento
+invalido o inaccesible bloquea nuevas ejecuciones hasta corregirlo y reiniciar.
+
+Verificacion: `npm test`, `npm run build`, `git diff --check`; ademas
+`npm run test:ui` construye la interfaz y la prueba contra un servidor de cola
+simulado en un puerto efimero, sin perfil Blackboard ni llamadas a Notion.
+Las capturas de escritorio/movil y resultados van a `artifacts/queue-ui/`.
+
 Los comandos publicos siguen viviendo en `scripts/*.mjs`, pero esos ficheros son
 wrappers finos. La implementacion vive en `scripts/backend/`:
 

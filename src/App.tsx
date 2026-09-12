@@ -2,6 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import type { Command } from "./lib/types";
 import { useT } from "./lib/i18n-context";
 import { useJob } from "./hooks/useJob";
+import { useQueue } from "./hooks/useQueue";
+import { QueueWorkspace } from "./components/QueueWorkspace";
+import { readQueueResume, saveQueueResume } from "./lib/queue-resume";
 import { useFormState } from "./hooks/useFormState";
 import { useDefaultsBootstrap } from "./hooks/useDefaultsBootstrap";
 import { useSessionCheck } from "./hooks/useSessionCheck";
@@ -26,6 +29,13 @@ const NOTION_COMMANDS: ReadonlySet<Command> = new Set([
 export default function App() {
   const t = useT();
   const job = useJob();
+  const queue = useQueue();
+  const [view, setView] = useState<"individual" | "queue">("individual");
+  const queueRecoveredRef = useRef(false);
+  const [restoredResume] = useState(readQueueResume);
+  const resumeQueueRef = useRef<string | null>(restoredResume?.batchId || null);
+  const resumeRequestedAtRef = useRef(restoredResume?.requestedAt || 0);
+  const resumeAfterLoginRef = useRef(!!restoredResume);
   const { settings, update: updateSettings, reset: resetSettings } = useSettings();
   const form = useFormState(settings.formDefaults);
   const bootstrap = useDefaultsBootstrap();
@@ -48,9 +58,9 @@ export default function App() {
     if (!shouldStartAutomaticSessionCheck({
       alreadyFired: autoCheckFiredRef.current,
       bootstrapReady: bootstrap.status === "ready",
-      jobBootstrapped: job.bootstrapped,
+      jobBootstrapped: job.bootstrapped && queue.bootstrapped,
       sessionBootstrapped: session.bootstrapped,
-      jobRunning: job.status === "running",
+      jobRunning: job.status === "running" || queue.running,
       sessionBusy: session.busy,
       hasBlackboardBaseUrl: !isMissingBlackboardBase,
     })) {
@@ -61,12 +71,34 @@ export default function App() {
   }, [
     bootstrap.status,
     job.bootstrapped,
+    queue.bootstrapped,
+    queue.running,
     job.status,
     session,
     session.bootstrapped,
     session.busy,
     isMissingBlackboardBase,
   ]);
+
+  useEffect(() => {
+    if (!queue.bootstrapped || queueRecoveredRef.current) return;
+    queueRecoveredRef.current = true;
+    if (queue.snapshot?.batches.length) setView("queue");
+  }, [queue.bootstrapped, queue.snapshot]);
+
+  useEffect(() => {
+    if (!resumeAfterLoginRef.current || session.busy || !session.bootstrapped || !queue.bootstrapped || !queue.connected) return;
+    resumeAfterLoginRef.current = false;
+    const batchId = resumeQueueRef.current;
+    resumeQueueRef.current = null;
+    saveQueueResume(null);
+    if (batchId && session.status === "verified" && (session.checkedAt?.getTime() || 0) >= resumeRequestedAtRef.current) void queue.mutate({ action: "resume", batchId });
+  }, [session.busy, session.status, session.bootstrapped, queue.bootstrapped, queue.connected, session.checkedAt]);
+
+  useEffect(() => {
+    const lastFailure = queue.activeBatch?.items.filter((i) => i.status === "blocked").map((i) => Date.parse(i.attempts.at(-1)?.finishedAt || "")).filter(Number.isFinite);
+    if (queue.activeBatch?.reason === "session-required" && (session.checkedAt?.getTime() || 0) < Math.max(0, ...(lastFailure || []))) session.markUnauthenticated();
+  }, [queue.activeBatch?.reason, queue.activeBatch?.items, session.markUnauthenticated, session.checkedAt]);
 
   // Settings is the single source of truth for form defaults. Whenever the
   // user edits a default in the Settings modal, propagate it into the live
@@ -129,6 +161,7 @@ export default function App() {
   }
 
   function startCommand(command: Command) {
+    if (queue.running || !queue.bootstrapped || queue.snapshot?.storageError) return;
     if (!SESSION_COMMANDS.has(command) && session.status !== "verified") {
       pendingCommandRef.current = command;
       if (!session.busy) {
@@ -140,7 +173,7 @@ export default function App() {
   }
 
   const isJobRunning = job.status === "running";
-  const isAnythingBusy = isJobRunning || session.busy;
+  const isAnythingBusy = isJobRunning || session.busy || queue.running || !queue.bootstrapped || !!queue.snapshot?.storageError;
   const showJobPanel =
     job.command !== null &&
     !SESSION_COMMANDS.has(job.command) &&
@@ -172,6 +205,11 @@ export default function App() {
 
   function confirmRemoteSessionCheck() {
     setSessionDialogOpen(false);
+    resumeAfterLoginRef.current = !!resumeQueueRef.current;
+    if (resumeQueueRef.current) {
+      resumeRequestedAtRef.current = Date.now();
+      saveQueueResume({ batchId: resumeQueueRef.current, requestedAt: resumeRequestedAtRef.current });
+    }
     void session.run("remote", true);
   }
 
@@ -184,10 +222,13 @@ export default function App() {
         onCheckSession={requestRemoteSessionCheck}
         onSignIn={requestRemoteSessionCheck}
         onOpenSettings={() => setSettingsOpen(true)}
-        sessionDisabled={isJobRunning || session.busy}
+        sessionDisabled={isJobRunning || session.busy || queue.running}
       />
 
-      <div className="mx-auto flex max-w-[960px] flex-col gap-5">
+      <div className="mx-auto flex max-w-[1200px] flex-col gap-5">
+        <nav aria-label={t("app.title")} className="flex w-fit max-w-full gap-1 rounded-xl border border-line-soft bg-surface p-1 shadow-elev-1">
+          {(["individual", "queue"] as const).map((tab) => <button key={tab} type="button" aria-pressed={view === tab} onClick={() => setView(tab)} className={`min-h-11 rounded-lg px-4 text-footnote font-semibold transition-colors ${view === tab ? "bg-accent-soft text-accent" : "text-ink-muted hover:bg-surface-quiet"}`}>{t(tab === "individual" ? "queue.individual" : "queue.tab")}</button>)}
+        </nav>
         {bootstrap.status === "error" ? (
           <Card tone="warning" enter={false}>
             <p className="text-footnote text-ink">{t("error.boot")}</p>
@@ -223,14 +264,14 @@ export default function App() {
           </Card>
         ) : null}
 
-        <PublishForm
+        {view === "queue" ? <QueueWorkspace queue={queue} settings={settings} sessionBusy={session.busy} onSignIn={(batchId) => { resumeQueueRef.current = batchId; setSessionDialogOpen(true); }} /> : <PublishForm
           form={form}
           disabled={isAnythingBusy}
           loadingCommand={isJobRunning ? job.command : null}
           onSubmit={startCommand}
-        />
+        />}
 
-        {showJobPanel && job.command ? (
+        {view === "individual" && showJobPanel && job.command ? (
           <JobPanel
             command={job.command}
             status={job.status}
@@ -249,13 +290,13 @@ export default function App() {
           />
         ) : null}
 
-        <ToolsCard
+        {view === "individual" ? <ToolsCard
           disabled={isAnythingBusy}
           loadingCommand={isJobRunning ? job.command : null}
           onExportMd={() => startCommand("export-md")}
           onVerifySession={requestRemoteSessionCheck}
           sessionBusy={session.busy}
-        />
+        /> : null}
       </div>
 
       <SettingsModal
@@ -269,7 +310,7 @@ export default function App() {
 
       <SessionVerificationDialog
         open={sessionDialogOpen}
-        onClose={() => setSessionDialogOpen(false)}
+        onClose={() => { setSessionDialogOpen(false); resumeQueueRef.current = null; }}
         onConfirm={confirmRemoteSessionCheck}
       />
 

@@ -71,6 +71,13 @@ test("bootstraps Blackboard in the initial page before resolving the exact SCORM
         attempts: 2,
         resolution: "dom-link",
       },
+      attempt: {
+        bridgeSeen: false,
+        playerRole: "legacy-player",
+        playerUrl: `http://127.0.0.1:${port}/scormdriver/indexAPI.html`,
+        relation: "popup",
+        unrelatedPageCount: 0,
+      },
     });
     assert.deepEqual(requests, [
       "/ultra/stream",

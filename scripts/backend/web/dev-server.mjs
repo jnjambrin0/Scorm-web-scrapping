@@ -10,6 +10,7 @@ const VITE_BIN = path.join(
 );
 
 const children = [];
+const completions = [];
 
 function prefixLines(name, stream) {
   let pending = "";
@@ -37,6 +38,7 @@ function start(name, command, args) {
     stdio: ["ignore", "pipe", "pipe"],
   });
   children.push(child);
+  completions.push(new Promise((resolve) => child.once("close", resolve)));
   prefixLines(name, child.stdout);
   prefixLines(name, child.stderr);
   child.on("exit", (code, signal) => {
@@ -52,14 +54,16 @@ function start(name, command, args) {
 }
 
 let shuttingDown = false;
-function shutdown(exitCode = 0) {
+async function shutdown(exitCode = 0) {
+  if (shuttingDown) return;
   shuttingDown = true;
   for (const child of children) {
-    if (!child.killed) {
+    if (child.exitCode === null && child.signalCode === null) {
       child.kill("SIGINT");
     }
   }
-  setTimeout(() => process.exit(exitCode), 300).unref();
+  await Promise.all(completions);
+  process.exit(exitCode);
 }
 
 process.once("SIGINT", () => shutdown(130));

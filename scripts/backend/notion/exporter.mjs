@@ -25,6 +25,7 @@ import {
 import { formatBytes, sanitizeError } from "../shared/text.mjs";
 import {
   applyCachedAssetManifest,
+  assertAssetsReadyForPublish,
   assetMapBySource,
   collectMediaReferences,
   downloadAssets,
@@ -43,6 +44,7 @@ import {
   trashNotionPage,
 } from "./client.mjs";
 import { logProgress } from "./progress.mjs";
+import { jobCheckpoint } from "../shared/job-checkpoint.mjs";
 import {
   markAssetsExceedingFreeLimit,
   MULTI_PART_SIZE,
@@ -228,20 +230,6 @@ function assertPublishConfig() {
   }
 }
 
-function assertAssetsReadyForPublish(assets) {
-  const failedAssets = assets.filter(
-    (asset) =>
-      asset.status !== "downloaded" && asset.uploadStatus !== "skipped_size_limit",
-  );
-  if (failedAssets.length > 0) {
-    throw new Error(
-      `Cannot publish: ${failedAssets.length} assets failed to download. First failed asset: ${
-        failedAssets[0].source
-      }`,
-    );
-  }
-}
-
 function summarize(mode, scormExport, assets, blocks, extra = {}) {
   const downloaded = assets.filter((asset) => asset.status === "downloaded");
   const failed = assets.filter(
@@ -305,6 +293,7 @@ function printPublishReport(summary) {
 }
 
 async function main() {
+  await jobCheckpoint("worker-start");
   const options = parseArgs(process.argv.slice(2));
   logProgress(
     `Starting SCORM to Notion export in ${options.publish ? "publish" : "dry-run"} mode.`,
@@ -362,7 +351,7 @@ async function main() {
   if (options.dryRun) {
     logProgress("Dry-run complete; no Notion page was created and no media was uploaded.");
     console.log(
-      JSON.stringify(summarize("dry-run", scormExport, assets, blocks), null, 2),
+      JSON.stringify(summarize("dry-run", scormExport, assets, blocks, { title: pageTitle }), null, 2),
     );
     return;
   }
@@ -383,7 +372,9 @@ async function main() {
   });
   logProgress(`Prepared ${blocks.length} final Notion blocks.`);
 
+  await jobCheckpoint("creating-page", { title: pageTitle });
   const page = await createNotionPage(notion, pageTitle, parentPage);
+  await jobCheckpoint("page-created", { pageId: page.id, pageUrl: page.url, title: pageTitle });
   logProgress("Notion page created; writing page metadata to asset manifest.");
   await writeAssetManifest(scormExport, assets, {
     notionParentPageId: parentPage.id,
@@ -411,6 +402,7 @@ async function main() {
   }
 
   const extra = {
+    title: pageTitle,
     notionParentPageId: parentPage.id,
     notionParentPageTitle: parentPage.title,
     notionParentPageUrl: parentPage.url,
@@ -425,6 +417,7 @@ async function main() {
   await writeAssetManifest(scormExport, assets, extra);
 
   const summary = summarize("publish", scormExport, assets, blocks, extra);
+  await jobCheckpoint("completed", { pageId: page.id, pageUrl: page.url, title: pageTitle, summary });
   logProgress("Publish complete.");
   console.log(JSON.stringify(summary, null, 2));
   printPublishReport(summary);
@@ -435,4 +428,6 @@ try {
 } catch (error) {
   console.error(sanitizeError(error));
   process.exitCode = 1;
+} finally {
+  if (process.connected) process.disconnect();
 }
