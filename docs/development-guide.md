@@ -112,6 +112,12 @@ borrarlo. Deben estar cerradas todas las ventanas y procesos que usen el
 perfil. El reset solo elimina el estado local; no cierra la sesion del
 proveedor SSO en el servidor.
 
+Las URL directas de SCORM se identifican por `courseId` e `itemId`, no por una
+ruta canónica fija. Se aceptan prefijos intermedios variables antes de
+`scorm/overview`; si Blackboard redirige a stream, outline u otra página del
+curso, la navegación abre primero el enlace renderizado que conserva esa misma
+identidad. Las rutas conocidas generadas por la aplicación son solo fallback.
+
 ## Como esta estructurado Blackboard/SCORM
 
 El flujo observado tiene varias capas:

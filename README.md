@@ -282,6 +282,13 @@ La URL suele tener esta forma:
 https://<tu-institución>.blackboard.com/ultra/courses/_COURSE_1/outline/scorm/overview/_ITEM_1?courseId=_COURSE_1
 ```
 
+La app no sustituye esa ruta por `outline` ni por otra variante antes de
+consultar Blackboard. Reconoce cualquier URL bajo
+`/ultra/courses/<curso>/.../scorm/overview/<ítem>` y, si Blackboard redirige a
+una página intermedia, sigue primero el enlace que la propia plataforma muestra
+para el mismo curso e ítem. Las rutas `outline` y `grades` solo son fallbacks
+cuando no existe un enlace real resoluble.
+
 Algunas instalaciones muestran `/scorm/overview/` o `/grades/scorm/overview/`
 en lugar de `/outline/scorm/overview/`. La aplicación acepta esas variantes y
 compara el curso y el item, no la cadena exacta del enlace. Copia la URL

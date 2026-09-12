@@ -2,7 +2,6 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  canonicalScormUrl,
   canonicalScormIdentity,
   matchingScormTargetIndex,
   parseScormUrl,
@@ -15,11 +14,17 @@ const outlineUrl =
   "https://u-tad.blackboard.com/ultra/courses/_14330_1/outline/scorm/overview/_641800_1?courseId=_14330_1";
 const gradesUrl =
   "https://u-tad.blackboard.com/ultra/courses/_14330_1/grades/scorm/overview/_641800_1";
+const nestedUrl =
+  "https://u-tad.blackboard.com/ultra/courses/_14330_1/content/learning-modules/scorm/overview/_641800_1?view=student";
+const reportedBareUrl =
+  "https://u-tad.blackboard.com/ultra/courses/_14390_1/scorm/overview/_689299_1";
 
 test("recognizes Blackboard SCORM overview URL variants as direct targets", () => {
   assert.ok(parseScormUrl(bareUrl));
   assert.ok(parseScormUrl(outlineUrl));
   assert.ok(parseScormUrl(gradesUrl));
+  assert.ok(parseScormUrl(nestedUrl));
+  assert.deepEqual(parseScormUrl(reportedBareUrl)?.identity, reportedBareUrl);
   assert.equal(parseScormUrl("https://u-tad.blackboard.com/ultra/stream"), null);
   assert.equal(
     parseScormUrl("https://u-tad.blackboard.com/ultra/courses/_14330_1/outline"),
@@ -38,13 +43,17 @@ test("extracts stable course and item identity", () => {
   );
 });
 
-test("generates a canonical outline candidate without losing courseId", () => {
-  assert.equal(
-    canonicalScormUrl(bareUrl),
+test("preserves the entered route and exposes known fallbacks last", () => {
+  assert.deepEqual(scormUrlCandidates(bareUrl), [
+    bareUrl,
     outlineUrl,
+    "https://u-tad.blackboard.com/ultra/courses/_14330_1/grades/scorm/overview/_641800_1?courseId=_14330_1",
+  ]);
+  assert.equal(scormUrlCandidates(nestedUrl)[0], nestedUrl);
+  assert.equal(
+    parseScormUrl(nestedUrl)?.route,
+    "content/learning-modules",
   );
-  assert.deepEqual(scormUrlCandidates(bareUrl), [bareUrl, outlineUrl]);
-  assert.deepEqual(scormUrlCandidates(outlineUrl), [outlineUrl]);
 });
 
 test("matches a canonical Blackboard href by course/item identity, not exact URL text", () => {

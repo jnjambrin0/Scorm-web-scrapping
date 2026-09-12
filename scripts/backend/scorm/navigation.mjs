@@ -140,6 +140,35 @@ async function clickLinkAt(page, index) {
   return true;
 }
 
+async function resolveScormTargetFromPage(page, baseUrl, target, currentDestination) {
+  const hrefs = await readHrefs(page);
+  const targetIndex = matchingScormTargetIndex(hrefs, page.url(), target);
+  console.log(
+    `SCORM item lookup: target ${target.identity}; links ${hrefs
+      .map((href) => safeHref(page.url(), href))
+      .join(", ")}; match ${targetIndex}.`,
+  );
+
+  if (!(await clickLinkAt(page, targetIndex))) {
+    return { resolved: false, destination: currentDestination, hrefs };
+  }
+
+  await dismissConcurrentSessionModal(page);
+  const destination = await pageDestination(page, baseUrl, target);
+  if (destination === "login") {
+    throw new Error(
+      `Blackboard session expired or login is required. Final destination: ${safePageUrl(
+        page.url(),
+      )}`,
+    );
+  }
+  return {
+    resolved: destination === "scorm",
+    destination,
+    hrefs,
+  };
+}
+
 function isScormPlayerUrl(value, target) {
   if (typeof value !== "string") return false;
   if (/\/scormdriver\/indexAPI\.html/i.test(value)) return true;
@@ -182,6 +211,7 @@ export async function openCourseOutline(page) {
 
   if (target) {
     let lastDestination = "unknown";
+    let lastHrefs = [];
     for (const candidate of scormUrlCandidates(courseOutlineUrl)) {
       lastDestination = await navigateTo(page, candidate, baseUrl, target);
       await dismissConcurrentSessionModal(page);
@@ -196,42 +226,29 @@ export async function openCourseOutline(page) {
       if (lastDestination === "scorm") {
         return;
       }
-    }
 
-    if (lastDestination === "stream") {
-      const hrefs = await readHrefs(page);
-      const targetIndex = matchingScormTargetIndex(hrefs, page.url(), target);
-      console.log(
-        `SCORM item lookup: target ${target.identity}; links ${hrefs
-          .map((href) => safeHref(page.url(), href))
-          .join(", ")}; match ${targetIndex}.`,
-      );
-      if (await clickLinkAt(page, targetIndex)) {
-        const destination = await pageDestination(page, baseUrl, target);
-        if (destination === "login") {
-          throw new Error(
-            `Blackboard session expired or login is required. Final destination: ${safePageUrl(
-              page.url(),
-            )}`,
-          );
-        }
-        if (destination === "scorm") {
+      // Blackboard can redirect a direct SCORM URL to stream, a course outline,
+      // or another same-origin landing page. The actual rendered link is always
+      // authoritative over a synthesized route fallback.
+      if (lastDestination !== "scorm") {
+        const resolution = await resolveScormTargetFromPage(
+          page,
+          baseUrl,
+          target,
+          lastDestination,
+        );
+        lastHrefs = resolution.hrefs;
+        lastDestination = resolution.destination;
+        if (resolution.resolved) {
           return;
         }
       }
-
-      throw new Error(
-        `Could not find SCORM item ${target.itemId} for course ${target.courseId}. ${
-          await navigationSummary(page, lastDestination)
-        }; candidate links: ${hrefs.length}`,
-      );
     }
 
     throw new Error(
-      `SCORM URL did not resolve to its overview page. ${await navigationSummary(
-        page,
-        lastDestination,
-      )}`,
+      `Could not resolve SCORM item ${target.itemId} for course ${target.courseId}. ${
+        await navigationSummary(page, lastDestination)
+      }; candidate links: ${lastHrefs.length}`,
     );
   }
 

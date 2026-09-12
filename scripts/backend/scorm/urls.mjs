@@ -1,5 +1,5 @@
 const SCORM_OVERVIEW_PATTERN =
-  /^\/ultra\/courses\/([^/]+)\/(?:(outline|grades)\/)?scorm\/overview\/([^/]+)(?:\/.*)?$/i;
+  /^\/ultra\/courses\/([^/]+)\/((?:[^/]+\/)*)scorm\/overview\/([^/]+)(?:\/.*)?$/i;
 
 function decodePathPart(value) {
   try {
@@ -41,48 +41,8 @@ export function parseScormUrl(value) {
     origin: parsed.origin,
     courseId,
     itemId,
-    route: match[2] || "default",
+    route: match[2].replace(/\/$/, "") || "default",
     identity,
-    canonicalUrl: canonicalScormUrl(parsed.href),
-  };
-}
-
-export function canonicalScormUrl(value) {
-  const target = parseScormUrlWithoutCanonical(value);
-  if (!target) {
-    return null;
-  }
-
-  const parsed = new URL(target.inputUrl);
-  parsed.pathname = `/ultra/courses/${encodePathPart(
-    target.courseId,
-  )}/outline/scorm/overview/${encodePathPart(target.itemId)}`;
-  parsed.searchParams.set("courseId", target.courseId);
-  parsed.hash = "";
-  return parsed.href;
-}
-
-function parseScormUrlWithoutCanonical(value) {
-  if (typeof value !== "string" || !value.trim()) {
-    return null;
-  }
-
-  let parsed;
-  try {
-    parsed = new URL(value.trim());
-  } catch {
-    return null;
-  }
-
-  const match = parsed.pathname.match(SCORM_OVERVIEW_PATTERN);
-  if (!match) {
-    return null;
-  }
-
-  return {
-    inputUrl: parsed.href,
-    courseId: decodePathPart(match[1]),
-    itemId: decodePathPart(match[3]),
   };
 }
 
@@ -115,9 +75,19 @@ export function scormUrlCandidates(value) {
     return [];
   }
 
+  const fallbackRoutes = ["", "outline/", "grades/"];
   const candidates = [target.inputUrl];
-  if (target.canonicalUrl && target.canonicalUrl !== target.inputUrl) {
-    candidates.push(target.canonicalUrl);
+  for (const route of fallbackRoutes) {
+    const candidate = new URL(target.inputUrl);
+    candidate.pathname = `/ultra/courses/${encodePathPart(
+      target.courseId,
+    )}/${route}scorm/overview/${encodePathPart(target.itemId)}`;
+    candidate.search = "";
+    if (route) candidate.searchParams.set("courseId", target.courseId);
+    candidate.hash = "";
+    if (!candidates.includes(candidate.href)) {
+      candidates.push(candidate.href);
+    }
   }
   return candidates;
 }

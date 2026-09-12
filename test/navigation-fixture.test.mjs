@@ -13,10 +13,17 @@ test("resolves a bare SCORM URL through the stream to the canonical item link", 
     "/ultra/courses/_14330_1/grades/scorm/overview/_641800_1";
   const barePath =
     "/ultra/courses/_14330_1/scorm/overview/_641800_1";
+  const requestedPaths = [];
   const server = http.createServer((request, response) => {
-    if (request.url === barePath || request.url?.startsWith(`${canonicalPath}?`)) {
+    requestedPaths.push(request.url || "");
+    if (request.url === barePath) {
       response.writeHead(302, { location: "/ultra/stream" });
       response.end();
+      return;
+    }
+    if (request.url?.startsWith(`${canonicalPath}?`)) {
+      response.writeHead(500, { "content-type": "text/html" });
+      response.end("The generated outline route must not be visited first.");
       return;
     }
     if (request.url?.startsWith(`${linkedPath}?`)) {
@@ -44,6 +51,11 @@ test("resolves a bare SCORM URL through the stream to the canonical item link", 
     const page = await browser.newPage();
     await openCourseOutline(page);
     assert.equal(page.url(), `http://127.0.0.1:${port}${linkedPath}?courseId=_14330_1`);
+    assert.equal(
+      requestedPaths.some((requestPath) => requestPath.startsWith(canonicalPath)),
+      false,
+      "the actual course link must be followed before synthesized route fallbacks",
+    );
   } finally {
     await browser?.close();
     await new Promise((resolve) => server.close(resolve));
