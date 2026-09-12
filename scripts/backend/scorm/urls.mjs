@@ -21,6 +21,7 @@ export function parseScormUrl(value) {
   let parsed;
   try {
     parsed = new URL(value.trim());
+    parsed.hash = "";
   } catch {
     return null;
   }
@@ -50,12 +51,7 @@ export function isDirectScormUrl(value) {
   return !!parseScormUrl(value);
 }
 
-export function canonicalScormIdentity(value) {
-  const target = parseScormUrl(value);
-  if (target) {
-    return target.identity;
-  }
-
+export function scormSourceIdentity(value) {
   if (typeof value !== "string" || !value.trim()) {
     return "";
   }
@@ -63,55 +59,25 @@ export function canonicalScormIdentity(value) {
   try {
     const parsed = new URL(value.trim());
     parsed.hash = "";
-    return parsed.href.replace(/\/$/, "");
+    return parsed.href;
   } catch {
     return "";
   }
 }
 
-export function scormUrlCandidates(value) {
-  const target = parseScormUrl(value);
-  if (!target) {
-    return [];
-  }
+export function matchingScormTargetIndexes(hrefs, pageUrl, target) {
+  if (!Array.isArray(hrefs) || !target) return [];
 
-  const fallbackRoutes = ["", "outline/", "grades/"];
-  const candidates = [target.inputUrl];
-  for (const route of fallbackRoutes) {
-    const candidate = new URL(target.inputUrl);
-    candidate.pathname = `/ultra/courses/${encodePathPart(
-      target.courseId,
-    )}/${route}scorm/overview/${encodePathPart(target.itemId)}`;
-    candidate.search = "";
-    if (route) candidate.searchParams.set("courseId", target.courseId);
-    candidate.hash = "";
-    if (!candidates.includes(candidate.href)) {
-      candidates.push(candidate.href);
-    }
-  }
-  return candidates;
-}
-
-export function matchingScormTargetIndex(hrefs, pageUrl, target) {
-  if (!Array.isArray(hrefs) || !target) {
-    return -1;
-  }
-
-  for (let index = 0; index < hrefs.length; index += 1) {
-    const href = hrefs[index];
-    if (typeof href !== "string" || !href.trim()) {
-      continue;
-    }
-
+  return hrefs.flatMap((href, index) => {
+    if (typeof href !== "string" || !href.trim()) return [];
     try {
-      const candidate = parseScormUrl(new URL(href, pageUrl).href);
-      if (candidate?.identity === target.identity) {
-        return index;
-      }
+      const resolved = new URL(href, pageUrl);
+      const candidate = parseScormUrl(resolved.href);
+      return candidate?.origin === target.origin && candidate.identity === target.identity
+        ? [index]
+        : [];
     } catch {
-      // Ignore malformed hrefs and continue looking for the target item.
+      return [];
     }
-  }
-
-  return -1;
+  });
 }

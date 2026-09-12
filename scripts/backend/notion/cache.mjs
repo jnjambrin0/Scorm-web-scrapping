@@ -29,7 +29,7 @@ function remapStagedPath(value, stagedRawDir, stableRawDir) {
 }
 
 export function classifyExportCache({
-  currentIdentity,
+  currentSourceUrlIdentity,
   manifest,
   markdownExists = false,
 }) {
@@ -44,7 +44,10 @@ export function classifyExportCache({
     return { status: "unavailable", reason: "manifest-invalid" };
   }
 
-  if (!currentIdentity || manifest.sourceIdentity !== currentIdentity) {
+  if (
+    !currentSourceUrlIdentity ||
+    manifest.sourceUrlIdentity !== currentSourceUrlIdentity
+  ) {
     return { status: "unavailable", reason: "source-mismatch" };
   }
 

@@ -14,7 +14,7 @@ import {
   configuredCourseOutlineUrl,
   hasNotionPaidPlan,
 } from "../shared/env.mjs";
-import { canonicalScormIdentity } from "../scorm/urls.mjs";
+import { scormSourceIdentity } from "../scorm/urls.mjs";
 import {
   EXPORT_DIR,
   NOTION_ASSET_MANIFEST_PATH,
@@ -75,7 +75,7 @@ function parseArgs(argv) {
   };
 }
 
-async function loadExistingExport(currentIdentity) {
+async function loadExistingExport(currentSourceUrlIdentity) {
   let rawManifest;
   try {
     rawManifest = await fs.readFile(SCORM_EXPORT_MANIFEST_PATH, "utf8");
@@ -108,8 +108,7 @@ async function loadExistingExport(currentIdentity) {
     };
   }
 
-  const sourceIdentity =
-    manifest.sourceIdentity || canonicalScormIdentity(manifest.courseOutlineUrl || "");
+  const sourceUrlIdentity = manifest.sourceUrlIdentity || "";
   const outPath = resolveArtifactPath(
     manifest.outPath,
     SCORM_EXPORT_MANIFEST_PATH,
@@ -119,8 +118,8 @@ async function loadExistingExport(currentIdentity) {
     ? await fs.access(outPath).then(() => true).catch(() => false)
     : false;
   const cache = classifyExportCache({
-    currentIdentity,
-    manifest: { ...manifest, sourceIdentity },
+    currentSourceUrlIdentity,
+    manifest: { ...manifest, sourceUrlIdentity },
     markdownExists,
   });
   if (cache.status !== "valid") {
@@ -136,7 +135,7 @@ async function loadExistingExport(currentIdentity) {
     cache,
     scormExport: {
       ...manifest,
-      sourceIdentity,
+      sourceUrlIdentity,
       outPath,
       rawDir,
       exportManifestPath: SCORM_EXPORT_MANIFEST_PATH,
@@ -160,11 +159,11 @@ async function loadExistingExport(currentIdentity) {
 
 async function getScormExport(options) {
   const currentUrl = configuredCourseOutlineUrl();
-  const currentIdentity = canonicalScormIdentity(currentUrl);
+  const currentSourceUrlIdentity = scormSourceIdentity(currentUrl);
 
   if (!options.refresh) {
     logProgress(`Loading cached SCORM export manifest: ${SCORM_EXPORT_MANIFEST_PATH}`);
-    const cached = await loadExistingExport(currentIdentity);
+    const cached = await loadExistingExport(currentSourceUrlIdentity);
     logProgress(`Cache status: ${cached.cache.reason}.`);
     if (cached.cache.status === "valid") {
       const scormExport = cached.scormExport;

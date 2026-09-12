@@ -7,12 +7,14 @@ import { useDefaultsBootstrap } from "./hooks/useDefaultsBootstrap";
 import { useSessionCheck } from "./hooks/useSessionCheck";
 import { useSettings } from "./hooks/useSettings";
 import { classifyJobError } from "./lib/errors";
+import { shouldStartAutomaticSessionCheck } from "./lib/session-verification";
 import { TopBar } from "./components/TopBar";
 import { Card } from "./components/Card";
 import { JobPanel } from "./components/JobPanel";
 import { PublishForm, focusFormField } from "./components/PublishForm";
 import { ToolsCard } from "./components/ToolsCard";
 import { SettingsModal } from "./components/SettingsModal";
+import { SessionVerificationDialog } from "./components/SessionVerificationDialog";
 import { Toast } from "./components/Toast";
 
 const SESSION_COMMANDS: ReadonlySet<Command> = new Set(["check-session", "login"]);
@@ -30,34 +32,39 @@ export default function App() {
   const session = useSessionCheck();
 
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [sessionGuardVisible, setSessionGuardVisible] = useState(false);
+  const [sessionDialogOpen, setSessionDialogOpen] = useState(false);
   const autoCheckFiredRef = useRef(false);
   const invalidatedJobRef = useRef<string | null>(null);
+  const pendingCommandRef = useRef<Command | null>(null);
 
   const config = bootstrap.defaults?.config ?? null;
   const isMissingNotionKey = config ? !config.hasNotionApiKey : false;
   const isMissingBlackboardBase = config ? !config.hasBlackboardBaseUrl : false;
   const setupIncomplete = isMissingNotionKey || isMissingBlackboardBase;
 
-  // Auto-verify the session once after bootstrap + job rehydrate have settled.
-  // Skip when the install is missing `BLACKBOARD_BASE_URL` — otherwise we'd
-  // immediately fail with a config error before the user has done anything.
+  // Each launch performs a silent remote validation. A persisted verification
+  // only prevents visual flicker; it never replaces this fresh server check.
   useEffect(() => {
-    if (autoCheckFiredRef.current) return;
-    if (bootstrap.status !== "ready") return;
-    if (!job.bootstrapped) return;
-    if (!session.bootstrapped) return;
-    if (job.status === "running") return;
-    if (session.status !== "idle") return;
-    if (isMissingBlackboardBase) return;
+    if (!shouldStartAutomaticSessionCheck({
+      alreadyFired: autoCheckFiredRef.current,
+      bootstrapReady: bootstrap.status === "ready",
+      jobBootstrapped: job.bootstrapped,
+      sessionBootstrapped: session.bootstrapped,
+      jobRunning: job.status === "running",
+      sessionBusy: session.busy,
+      hasBlackboardBaseUrl: !isMissingBlackboardBase,
+    })) {
+      return;
+    }
     autoCheckFiredRef.current = true;
-    session.run();
+    void session.run("remote", false, true);
   }, [
     bootstrap.status,
     job.bootstrapped,
     job.status,
     session,
     session.bootstrapped,
+    session.busy,
     isMissingBlackboardBase,
   ]);
 
@@ -91,12 +98,7 @@ export default function App() {
     session.markUnauthenticated(classified);
   }, [job.status, job.job?.id, job.command, job.error, job.logs, session.markUnauthenticated]);
 
-  function startCommand(command: Command) {
-    if (!SESSION_COMMANDS.has(command) && session.status !== "verified") {
-      setSessionGuardVisible(true);
-      return;
-    }
-
+  function runCommand(command: Command) {
     if (command !== "check-session") {
       const result = form.validate();
       if (!result.ok && result.firstErrorKey) {
@@ -126,6 +128,17 @@ export default function App() {
     });
   }
 
+  function startCommand(command: Command) {
+    if (!SESSION_COMMANDS.has(command) && session.status !== "verified") {
+      pendingCommandRef.current = command;
+      if (!session.busy) {
+        void session.run("remote", false, true);
+      }
+      return;
+    }
+    runCommand(command);
+  }
+
   const isJobRunning = job.status === "running";
   const isAnythingBusy = isJobRunning || session.busy;
   const showJobPanel =
@@ -135,10 +148,31 @@ export default function App() {
 
   const sessionErrorToastVisible = !session.busy && !!session.classifiedError;
 
+  useEffect(() => {
+    const command = pendingCommandRef.current;
+    if (!command || session.busy) return;
+    if (session.status === "verified") {
+      pendingCommandRef.current = null;
+      runCommand(command);
+      return;
+    }
+    if (session.status === "unauth") {
+      pendingCommandRef.current = null;
+      setSessionDialogOpen(true);
+      return;
+    }
+    if (session.status === "stale" || session.status === "error") {
+      pendingCommandRef.current = null;
+    }
+  }, [session.busy, session.status]);
+
   function requestRemoteSessionCheck() {
-    if (!window.confirm(t("session.remoteVerify.confirm"))) return;
-    setSessionGuardVisible(false);
-    session.run("remote", true);
+    setSessionDialogOpen(true);
+  }
+
+  function confirmRemoteSessionCheck() {
+    setSessionDialogOpen(false);
+    void session.run("remote", true);
   }
 
   return (
@@ -146,6 +180,7 @@ export default function App() {
       <TopBar
         sessionStatus={session.status}
         sessionCheckedAt={session.checkedAt}
+        sessionRefreshing={session.refreshing}
         onCheckSession={requestRemoteSessionCheck}
         onSignIn={requestRemoteSessionCheck}
         onOpenSettings={() => setSettingsOpen(true)}
@@ -232,21 +267,18 @@ export default function App() {
         config={config}
       />
 
+      <SessionVerificationDialog
+        open={sessionDialogOpen}
+        onClose={() => setSessionDialogOpen(false)}
+        onConfirm={confirmRemoteSessionCheck}
+      />
+
       {session.busy && session.interactive ? (
         <Toast
           tone="loading"
           title={t("login.waiting.title")}
           description={t("login.waiting.body")}
           action={{ label: t("login.cancel"), onClick: () => session.cancel() }}
-          autoDismissMs={0}
-        />
-      ) : sessionGuardVisible ? (
-        <Toast
-          tone="warning"
-          title={t("session.remoteVerify")}
-          description={t("session.remoteVerify.detail")}
-          action={{ label: t("session.remoteVerify"), onClick: requestRemoteSessionCheck }}
-          onClose={() => setSessionGuardVisible(false)}
           autoDismissMs={0}
         />
       ) : sessionErrorToastVisible && session.classifiedError ? (

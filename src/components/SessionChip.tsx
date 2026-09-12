@@ -15,6 +15,7 @@ export type { SessionCheckStatus };
 interface Props {
   status: SessionCheckStatus;
   checkedAt: Date | null;
+  refreshing?: boolean;
   /** Called when the user wants an explicit remote verification. */
   onCheck: () => void;
   /** Called when the user clicks the chip in unauth state to verify and sign in. */
@@ -27,6 +28,7 @@ type LabelKey =
   | "session.notVerified"
   | "session.checking"
   | "session.stored"
+  | "session.stale"
   | "session.verified"
   | "session.signIn"
   | "session.error";
@@ -57,6 +59,12 @@ const VISUAL: Record<SessionCheckStatus, Visual> = {
     container: "surface-tint-warning",
     showRefreshIcon: true,
   },
+  stale: {
+    dot: "bg-warning",
+    labelKey: "session.stale",
+    container: "surface-tint-warning",
+    showRefreshIcon: true,
+  },
   verified: {
     dot: "bg-success",
     labelKey: "session.verified",
@@ -77,14 +85,21 @@ const VISUAL: Record<SessionCheckStatus, Visual> = {
   },
 };
 
-export function SessionChip({ status, checkedAt, onCheck, onSignIn, disabled }: Props) {
+export function SessionChip({
+  status,
+  checkedAt,
+  refreshing = false,
+  onCheck,
+  onSignIn,
+  disabled,
+}: Props) {
   const t = useT();
   const visual = VISUAL[status];
-  const checking = status === "checking";
+  const checking = status === "checking" || refreshing;
 
   const ago = useMemo(() => {
     if (!checkedAt) return null;
-    if (status !== "verified") return null;
+    if (status !== "verified" && status !== "stale") return null;
     const minutes = Math.max(0, Math.floor((Date.now() - checkedAt.getTime()) / 60_000));
     if (minutes <= 0) return t("session.justNow");
     return t("session.minutesAgo", { n: minutes });
@@ -144,6 +159,8 @@ function pickActionIcon(status: SessionCheckStatus) {
     case "verified":
       return RefreshCw;
     case "stored":
+      return RefreshCw;
+    case "stale":
       return RefreshCw;
     case "checking":
     default:

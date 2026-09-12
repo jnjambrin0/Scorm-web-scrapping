@@ -6,6 +6,7 @@ import { SessionChip, type SessionCheckStatus } from "./SessionChip";
 interface Props {
   sessionStatus: SessionCheckStatus;
   sessionCheckedAt: Date | null;
+  sessionRefreshing?: boolean;
   onCheckSession: () => void;
   onSignIn: () => void;
   onOpenSettings: () => void;
@@ -15,6 +16,7 @@ interface Props {
 export function TopBar({
   sessionStatus,
   sessionCheckedAt,
+  sessionRefreshing,
   onCheckSession,
   onSignIn,
   onOpenSettings,
@@ -44,6 +46,7 @@ export function TopBar({
           <SessionChip
             status={sessionStatus}
             checkedAt={sessionCheckedAt}
+            refreshing={sessionRefreshing}
             onCheck={onCheckSession}
             onSignIn={onSignIn}
             disabled={sessionDisabled}

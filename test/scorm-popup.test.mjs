@@ -11,6 +11,11 @@ const scormPath =
 
 test("follows the SCORM popup opened by Start attempt", async () => {
   const server = http.createServer((request, response) => {
+    if (request.url === "/ultra/stream") {
+      response.writeHead(200, { "content-type": "text/html" });
+      response.end("<title>Courses</title><main>Course Content</main>");
+      return;
+    }
     if (request.url === scormPath || request.url?.startsWith(`${scormPath}?`)) {
       response.writeHead(200, { "content-type": "text/html" });
       response.end(
@@ -29,7 +34,9 @@ test("follows the SCORM popup opened by Start attempt", async () => {
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   const port = server.address().port;
   const previousUrl = process.env.COURSE_OUTLINE_URL;
+  const previousBaseUrl = process.env.BLACKBOARD_BASE_URL;
   process.env.COURSE_OUTLINE_URL = `http://127.0.0.1:${port}${scormPath}`;
+  process.env.BLACKBOARD_BASE_URL = `http://127.0.0.1:${port}/ultra/stream`;
   const browser = await chromium.launch({ channel: "chrome", headless: true });
 
   try {
@@ -42,11 +49,18 @@ test("follows the SCORM popup opened by Start attempt", async () => {
     await new Promise((resolve) => server.close(resolve));
     if (previousUrl === undefined) delete process.env.COURSE_OUTLINE_URL;
     else process.env.COURSE_OUTLINE_URL = previousUrl;
+    if (previousBaseUrl === undefined) delete process.env.BLACKBOARD_BASE_URL;
+    else process.env.BLACKBOARD_BASE_URL = previousBaseUrl;
   }
 });
 
 test("uses the current page when Start attempt does not open a popup", async () => {
   const server = http.createServer((request, response) => {
+    if (request.url === "/ultra/stream") {
+      response.writeHead(200, { "content-type": "text/html" });
+      response.end("<title>Courses</title><main>Course Content</main>");
+      return;
+    }
     if (request.url === scormPath || request.url?.startsWith(`${scormPath}?`)) {
       response.writeHead(200, { "content-type": "text/html" });
       response.end(
@@ -65,7 +79,9 @@ test("uses the current page when Start attempt does not open a popup", async () 
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   const port = server.address().port;
   const previousUrl = process.env.COURSE_OUTLINE_URL;
+  const previousBaseUrl = process.env.BLACKBOARD_BASE_URL;
   process.env.COURSE_OUTLINE_URL = `http://127.0.0.1:${port}${scormPath}`;
+  process.env.BLACKBOARD_BASE_URL = `http://127.0.0.1:${port}/ultra/stream`;
   const browser = await chromium.launch({ channel: "chrome", headless: true });
 
   try {
@@ -78,5 +94,7 @@ test("uses the current page when Start attempt does not open a popup", async () 
     await new Promise((resolve) => server.close(resolve));
     if (previousUrl === undefined) delete process.env.COURSE_OUTLINE_URL;
     else process.env.COURSE_OUTLINE_URL = previousUrl;
+    if (previousBaseUrl === undefined) delete process.env.BLACKBOARD_BASE_URL;
+    else process.env.BLACKBOARD_BASE_URL = previousBaseUrl;
   }
 });

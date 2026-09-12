@@ -1,22 +1,38 @@
 import {
   configuredCourseOutlineUrl,
+  configuredBlackboardBaseUrl,
   configuredScormTitle,
 } from "../shared/env.mjs";
 import {
-  matchingScormTargetIndex,
+  matchingScormTargetIndexes,
   parseScormUrl,
-  scormUrlCandidates,
 } from "./urls.mjs";
 import {
   classifySessionDestination,
   safePageUrl,
 } from "../browser/session-state.mjs";
 
+const navigationMetadataByPage = new WeakMap();
+
+export function scormNavigationMetadata(page) {
+  return navigationMetadataByPage.get(page) || null;
+}
+
 function requireCourseOutlineUrl() {
   const url = configuredCourseOutlineUrl();
   if (!url) {
     throw new Error(
       "COURSE_OUTLINE_URL is empty. Paste the Blackboard URL in the form before running an export.",
+    );
+  }
+  return url;
+}
+
+function requireBlackboardBaseUrl() {
+  const url = configuredBlackboardBaseUrl();
+  if (!url) {
+    throw new Error(
+      "BLACKBOARD_BASE_URL is empty. Configure the Blackboard Stream URL before opening SCORM.",
     );
   }
   return url;
@@ -89,6 +105,25 @@ async function pageDestination(page, baseUrl, target = null) {
   return sessionDestination;
 }
 
+async function isAuthenticatedBlackboardPage(page, baseUrl) {
+  const title = await page.title().catch(() => "");
+  const bodyText = await page
+    .locator("body")
+    .innerText({ timeout: 2500 })
+    .catch(() => "");
+  const hasPasswordField =
+    (await page.locator('input[type="password"]').count().catch(() => 0)) > 0;
+  return (
+    classifySessionDestination({
+      currentUrl: page.url(),
+      baseUrl,
+      title,
+      bodyText: bodyText.slice(0, 1500),
+      hasPasswordField,
+    }) === "blackboard"
+  );
+}
+
 async function navigationSummary(page, destination) {
   const title = await page.title().catch(() => "");
   return `${destination}; final URL ${safePageUrl(page.url())}; title ${JSON.stringify(
@@ -125,14 +160,6 @@ function matchingUrlIndex(hrefs, pageUrl, targetUrl) {
   );
 }
 
-function safeHref(pageUrl, href) {
-  try {
-    return safePageUrl(new URL(href, pageUrl).href);
-  } catch {
-    return "invalid";
-  }
-}
-
 async function clickLinkAt(page, index) {
   if (index < 0) return false;
   await page.locator("a").nth(index).click();
@@ -140,33 +167,12 @@ async function clickLinkAt(page, index) {
   return true;
 }
 
-async function resolveScormTargetFromPage(page, baseUrl, target, currentDestination) {
-  const hrefs = await readHrefs(page);
-  const targetIndex = matchingScormTargetIndex(hrefs, page.url(), target);
-  console.log(
-    `SCORM item lookup: target ${target.identity}; links ${hrefs
-      .map((href) => safeHref(page.url(), href))
-      .join(", ")}; match ${targetIndex}.`,
-  );
-
-  if (!(await clickLinkAt(page, targetIndex))) {
-    return { resolved: false, destination: currentDestination, hrefs };
+function safeHref(pageUrl, href) {
+  try {
+    return safePageUrl(new URL(href, pageUrl).href);
+  } catch {
+    return "invalid";
   }
-
-  await dismissConcurrentSessionModal(page);
-  const destination = await pageDestination(page, baseUrl, target);
-  if (destination === "login") {
-    throw new Error(
-      `Blackboard session expired or login is required. Final destination: ${safePageUrl(
-        page.url(),
-      )}`,
-    );
-  }
-  return {
-    resolved: destination === "scorm",
-    destination,
-    hrefs,
-  };
 }
 
 function isScormPlayerUrl(value, target) {
@@ -190,8 +196,9 @@ function isScormPlayerUrl(value, target) {
 }
 
 async function navigateTo(page, url, baseUrl, target = null) {
+  let response;
   try {
-    await page.goto(url, { waitUntil: "domcontentloaded" });
+    response = await page.goto(url, { waitUntil: "domcontentloaded" });
   } catch (error) {
     throw new Error(
       `Could not navigate to Blackboard URL ${safePageUrl(url)}: ${error.message}`,
@@ -201,58 +208,175 @@ async function navigateTo(page, url, baseUrl, target = null) {
   await settleNavigation(page);
   const destination = await pageDestination(page, baseUrl, target);
   console.log(`Navigation: ${destination}; final URL: ${safePageUrl(page.url())}.`);
-  return destination;
+  return {
+    destination,
+    responseStatus: response?.status() ?? null,
+  };
 }
 
-export async function openCourseOutline(page) {
+async function bootstrapBlackboardPage(page, baseUrl) {
+  console.log(`Blackboard SCORM bootstrap: opening ${safePageUrl(baseUrl)}.`);
+  const { destination, responseStatus } = await navigateTo(page, baseUrl, baseUrl);
+  await dismissConcurrentSessionModal(page);
+  if (destination === "login") {
+    throw new Error(
+      `Blackboard bootstrap requires login. Final destination: ${safePageUrl(page.url())}`,
+    );
+  }
+  if (responseStatus !== null && responseStatus >= 400) {
+    throw new Error(
+      `Blackboard bootstrap returned HTTP ${responseStatus}. ${await navigationSummary(
+        page,
+        destination,
+      )}`,
+    );
+  }
+  if (!(await isAuthenticatedBlackboardPage(page, baseUrl))) {
+    throw new Error(
+      `Blackboard bootstrap did not reach an authenticated page. ${await navigationSummary(
+        page,
+        destination,
+      )}`,
+    );
+  }
+  const resolvedUrl = safePageUrl(page.url());
+  console.log(`Blackboard SCORM bootstrap ready: ${resolvedUrl}.`);
+  return { resolvedUrl };
+}
+
+async function assertDirectScormResponse(responseStatus, page, destination) {
+  if (responseStatus === null || responseStatus < 400) return;
+  throw new Error(
+    `Direct SCORM source returned HTTP ${responseStatus}. ${await navigationSummary(
+      page,
+      destination,
+    )}`,
+  );
+}
+
+export async function openCourseOutline(page, { baseUrl: suppliedBaseUrl } = {}) {
   const courseOutlineUrl = requireCourseOutlineUrl();
-  const baseUrl = new URL(courseOutlineUrl).origin;
+  const baseUrl = suppliedBaseUrl || new URL(courseOutlineUrl).origin;
   const target = parseScormUrl(courseOutlineUrl);
 
   if (target) {
-    let lastDestination = "unknown";
-    let lastHrefs = [];
-    for (const candidate of scormUrlCandidates(courseOutlineUrl)) {
-      lastDestination = await navigateTo(page, candidate, baseUrl, target);
-      await dismissConcurrentSessionModal(page);
+    let attempts = 1;
+    let { destination, responseStatus } = await navigateTo(
+      page,
+      target.inputUrl,
+      baseUrl,
+      target,
+    );
+    await dismissConcurrentSessionModal(page);
 
-      if (lastDestination === "login") {
+    if (destination === "login") {
+      throw new Error(
+        `Blackboard session expired or login is required. Final destination: ${safePageUrl(
+          page.url(),
+        )}`,
+      );
+    }
+    await assertDirectScormResponse(responseStatus, page, destination);
+    if (parseScormUrl(page.url())?.identity === target.identity) {
+      console.log(
+        `Direct SCORM source resolved by Blackboard: source ${safePageUrl(
+          target.inputUrl,
+        )}; destination ${safePageUrl(page.url())}.`,
+      );
+      return {
+        sourceUrl: safePageUrl(target.inputUrl),
+        resolvedUrl: safePageUrl(page.url()),
+        attempts,
+        resolution: "server-route",
+      };
+    }
+
+    if (destination === "stream") {
+      attempts += 1;
+      console.log(
+        `Direct SCORM source reached Stream; retrying the exact source URL (attempt ${attempts}).`,
+      );
+      ({ destination, responseStatus } = await navigateTo(
+        page,
+        target.inputUrl,
+        baseUrl,
+        target,
+      ));
+      await dismissConcurrentSessionModal(page);
+      if (destination === "login") {
         throw new Error(
           `Blackboard session expired or login is required. Final destination: ${safePageUrl(
             page.url(),
           )}`,
         );
       }
-      if (lastDestination === "scorm") {
-        return;
-      }
-
-      // Blackboard can redirect a direct SCORM URL to stream, a course outline,
-      // or another same-origin landing page. The actual rendered link is always
-      // authoritative over a synthesized route fallback.
-      if (lastDestination !== "scorm") {
-        const resolution = await resolveScormTargetFromPage(
-          page,
-          baseUrl,
-          target,
-          lastDestination,
+      await assertDirectScormResponse(responseStatus, page, destination);
+      if (parseScormUrl(page.url())?.identity === target.identity) {
+        console.log(
+          `Direct SCORM source resolved after exact retry: ${safePageUrl(page.url())}.`,
         );
-        lastHrefs = resolution.hrefs;
-        lastDestination = resolution.destination;
-        if (resolution.resolved) {
-          return;
-        }
+        return {
+          sourceUrl: safePageUrl(target.inputUrl),
+          resolvedUrl: safePageUrl(page.url()),
+          attempts,
+          resolution: "exact-retry",
+        };
       }
     }
 
+    const hrefs = await readHrefs(page);
+    const matchingIndexes = matchingScormTargetIndexes(hrefs, page.url(), target);
+    if (matchingIndexes.length === 0) {
+      throw new Error(
+        `Direct SCORM source did not render a matching SCORM link. ${await navigationSummary(
+          page,
+          destination,
+        )}; candidate links: ${hrefs.length}`,
+      );
+    }
+    if (matchingIndexes.length > 1) {
+      throw new Error(
+        `Direct SCORM source rendered multiple matching SCORM links. ${await navigationSummary(
+          page,
+          destination,
+        )}; matches: ${matchingIndexes.length}`,
+      );
+    }
+
+    const index = matchingIndexes[0];
+    console.log(
+      `Direct SCORM DOM resolution: source ${safePageUrl(
+        target.inputUrl,
+      )}; landing ${safePageUrl(page.url())}; selected ${safeHref(page.url(), hrefs[index])}.`,
+    );
+    await clickLinkAt(page, index);
+    await dismissConcurrentSessionModal(page);
+    const selectedDestination = await pageDestination(page, baseUrl, target);
+    if (selectedDestination === "login") {
+      throw new Error(
+        `Blackboard session expired or login is required. Final destination: ${safePageUrl(
+          page.url(),
+        )}`,
+      );
+    }
+    if (parseScormUrl(page.url())?.identity === target.identity) {
+      return {
+        sourceUrl: safePageUrl(target.inputUrl),
+        resolvedUrl: safePageUrl(page.url()),
+        attempts,
+        resolution: "dom-link",
+      };
+    }
+
     throw new Error(
-      `Could not resolve SCORM item ${target.itemId} for course ${target.courseId}. ${
-        await navigationSummary(page, lastDestination)
-      }; candidate links: ${lastHrefs.length}`,
+      `Direct SCORM resolved link did not open the expected item. ${await navigationSummary(
+        page,
+        selectedDestination,
+      )}`,
     );
   }
 
-  const destination = await navigateTo(page, courseOutlineUrl, baseUrl);
+  const { destination } = await navigateTo(page, courseOutlineUrl, baseUrl);
   await dismissConcurrentSessionModal(page);
   if (destination === "login") {
     throw new Error(
@@ -276,16 +400,23 @@ export async function openCourseOutline(page) {
   }
 
   await dismissConcurrentSessionModal(page);
+  return {
+    sourceUrl: safePageUrl(courseOutlineUrl),
+    resolvedUrl: safePageUrl(page.url()),
+    attempts: 1,
+    resolution: "outline",
+  };
 }
 
 export async function openScorm(context) {
   const courseOutlineUrl = requireCourseOutlineUrl();
-  const baseUrl = new URL(courseOutlineUrl).origin;
+  const baseUrl = requireBlackboardBaseUrl();
   const directTarget = parseScormUrl(courseOutlineUrl);
-  const page = await context.newPage();
+  const page = context.pages()[0] || (await context.newPage());
   page.setDefaultTimeout(20000);
 
-  await openCourseOutline(page);
+  const bootstrap = await bootstrapBlackboardPage(page, baseUrl);
+  const sourceNavigation = await openCourseOutline(page, { baseUrl });
 
   if (!directTarget) {
     const unitTitle = requireScormTitle();
@@ -368,6 +499,10 @@ export async function openScorm(context) {
     .catch(() => {});
   await scormPage.waitForLoadState("networkidle", { timeout: 20000 }).catch(() => {});
   await dismissConcurrentSessionModal(scormPage);
+  navigationMetadataByPage.set(scormPage, {
+    bootstrap,
+    source: sourceNavigation,
+  });
   return scormPage;
 }
 

@@ -10,30 +10,30 @@ import {
   resolveArtifactPath,
 } from "../scripts/backend/notion/cache.mjs";
 
-const sourceIdentity =
+const sourceUrlIdentity =
   "https://u-tad.blackboard.com/ultra/courses/_14330_1/scorm/overview/_641800_1";
 
 test("reports precise reasons for unavailable export cache", () => {
-  assert.equal(classifyExportCache({ currentIdentity: sourceIdentity }).reason, "manifest-missing");
+  assert.equal(classifyExportCache({ currentSourceUrlIdentity: sourceUrlIdentity }).reason, "manifest-missing");
   assert.equal(
     classifyExportCache({
-      currentIdentity: sourceIdentity,
+      currentSourceUrlIdentity: sourceUrlIdentity,
       manifest: "not-json",
     }).reason,
     "manifest-invalid",
   );
   assert.equal(
     classifyExportCache({
-      currentIdentity: sourceIdentity,
-      manifest: { sourceIdentity, lessons: [{}] },
+      currentSourceUrlIdentity: sourceUrlIdentity,
+      manifest: { sourceUrlIdentity, lessons: [{}] },
       markdownExists: false,
     }).reason,
     "markdown-missing",
   );
   assert.equal(
     classifyExportCache({
-      currentIdentity: sourceIdentity,
-      manifest: { sourceIdentity: "other-source", lessons: [{}] },
+      currentSourceUrlIdentity: sourceUrlIdentity,
+      manifest: { sourceUrlIdentity: "other-source", lessons: [{}] },
       markdownExists: true,
     }).reason,
     "source-mismatch",
@@ -43,8 +43,8 @@ test("reports precise reasons for unavailable export cache", () => {
 test("accepts a complete cache only when source and markdown are present", () => {
   assert.deepEqual(
     classifyExportCache({
-      currentIdentity: sourceIdentity,
-      manifest: { sourceIdentity, lessons: [{}] },
+      currentSourceUrlIdentity: sourceUrlIdentity,
+      manifest: { sourceUrlIdentity, lessons: [{}] },
       markdownExists: true,
     }),
     { status: "valid", reason: "valid" },
@@ -73,7 +73,7 @@ test("preserves the old export when staging promotion fails", async () => {
   await fs.writeFile(
     manifestPath,
     JSON.stringify({
-      sourceIdentity: "old-source",
+      sourceUrlIdentity: "old-source",
       outPath: "exports/old.md",
       rawDir: "exports/raw",
     }),
@@ -82,7 +82,7 @@ test("preserves the old export when staging promotion fails", async () => {
   await assert.rejects(() =>
     promoteStagedExport(
       {
-        sourceIdentity,
+        sourceUrlIdentity,
         outPath: path.join(root, "stage", "missing.md"),
         rawDir: path.join(root, "stage", "raw"),
         exportManifestPath: path.join(root, "stage", "manifest.json"),
@@ -114,8 +114,8 @@ test("promotes a complete staged export with portable manifest paths", async () 
 
   const promoted = await promoteStagedExport(
     {
-      sourceIdentity,
-      courseOutlineUrl: sourceIdentity,
+      sourceUrlIdentity,
+      courseOutlineUrl: sourceUrlIdentity,
       title: "New unit",
       outPath: stageMarkdown,
       rawDir: stageRawDir,
@@ -134,4 +134,18 @@ test("promotes a complete staged export with portable manifest paths", async () 
   assert.equal(manifest.rawDir, "exports/raw");
   assert.equal(manifest.lessons[0].rawTextPath, "exports/raw/01-lesson.txt");
   await fs.rm(root, { recursive: true, force: true });
+});
+
+test("does not reuse a cache between bare and outline SCORM routes", () => {
+  const outlineSourceUrlIdentity =
+    "https://u-tad.blackboard.com/ultra/courses/_14330_1/outline/scorm/overview/_641800_1?courseId=_14330_1";
+
+  assert.deepEqual(
+    classifyExportCache({
+      currentSourceUrlIdentity: sourceUrlIdentity,
+      manifest: { sourceUrlIdentity: outlineSourceUrlIdentity, lessons: [{}] },
+      markdownExists: true,
+    }),
+    { status: "unavailable", reason: "source-mismatch" },
+  );
 });

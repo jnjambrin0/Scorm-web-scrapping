@@ -37,8 +37,12 @@ const FILESYSTEM = /\b(ENOENT|EACCES|EPERM|ENOTDIR|EISDIR)\b/;
 const NETWORK = /\b(ECONNREFUSED|ENETUNREACH|ETIMEDOUT|EAI_AGAIN|getaddrinfo|fetch failed|Failed to fetch|NetworkError)\b/i;
 const PROFILE_BUSY = /(BROWSER_PROFILE_BUSY|Browser profile is already in use|perfil de Blackboard (?:está en uso|está abierto)|perfil.*en uso|tarea de Blackboard aún activa)/i;
 const LOGIN_INCOMPLETE = /Login window closed before reaching Blackboard|Interactive Blackboard verification was closed|inicio de sesión.*no ha terminado|closed before reaching Blackboard/i;
+const SCORM_SOURCE_HTTP = /Direct SCORM source returned HTTP \d+/i;
+const SCORM_LINK_MISSING = /Direct SCORM source did not render a matching SCORM link/i;
+const SCORM_LINK_AMBIGUOUS = /Direct SCORM source rendered multiple matching SCORM links/i;
+const SCORM_LINK_WRONG = /Direct SCORM resolved link did not open the expected item/i;
 const SCORM_ITEM = /Could not find SCORM item|Could not find course link/i;
-const SCORM_URL = /SCORM URL did not resolve|Could not find Start\/Continue attempt control|staged cache was not promoted/i;
+const SCORM_URL = /SCORM URL did not resolve|Direct SCORM URL did not resolve as entered|Could not find Start\/Continue attempt control|staged cache was not promoted/i;
 const CACHE_INVALID = /Cache status: (?:manifest-missing|manifest-invalid|markdown-missing|source-mismatch)/i;
 const PROCESS_CRASH = /Job failed with code/;
 
@@ -52,6 +56,26 @@ const PATTERNS: ReadonlyArray<Pattern> = [
     test: (raw, log) => LOGIN_INCOMPLETE.test(raw) || LOGIN_INCOMPLETE.test(log),
     titleKey: "error.login.incomplete",
     hintKey: "error.login.incomplete.hint",
+  },
+  {
+    test: (raw, log) => SCORM_SOURCE_HTTP.test(raw) || SCORM_SOURCE_HTTP.test(log),
+    titleKey: "error.scorm.sourceHttp",
+    hintKey: "error.scorm.sourceHttp.hint",
+  },
+  {
+    test: (raw, log) => SCORM_LINK_MISSING.test(raw) || SCORM_LINK_MISSING.test(log),
+    titleKey: "error.scorm.linkMissing",
+    hintKey: "error.scorm.linkMissing.hint",
+  },
+  {
+    test: (raw, log) => SCORM_LINK_AMBIGUOUS.test(raw) || SCORM_LINK_AMBIGUOUS.test(log),
+    titleKey: "error.scorm.linkAmbiguous",
+    hintKey: "error.scorm.linkAmbiguous.hint",
+  },
+  {
+    test: (raw, log) => SCORM_LINK_WRONG.test(raw) || SCORM_LINK_WRONG.test(log),
+    titleKey: "error.scorm.linkWrong",
+    hintKey: "error.scorm.linkWrong.hint",
   },
   {
     test: (raw, _log) => PLAYWRIGHT_MISSING.test(raw),

@@ -92,13 +92,20 @@ npm run reset-session -- --confirm
 ```
 
 `npm run check-session` es una inspeccion local segura: informa si el perfil
-contiene datos, pero no confirma al servidor. `--remote` navega a Blackboard y
-es una accion explicita porque una institucion puede limitar sesiones
+contiene datos, pero no confirma al servidor. `--remote` navega a Blackboard;
+la interfaz lo ejecuta sin ventana en cada arranque para actualizar la sesión,
+por decisión explícita de producto. Puede afectar al límite de sesiones
 concurrentes. `--remote --interactive` abre una ventana y espera sin límite de
 tiempo a que el usuario complete el SSO; al detectar una página Blackboard
 autenticada, cierra el contexto y libera el perfil. Si la sesión caduca, se
 puede usar ese comando o `npm run login`. No se debe copiar la sesión del Chrome
 personal del usuario ni pedir contraseñas.
+
+La UI conserva en `localStorage` únicamente una instantánea visual de la última
+verificación correcta: `verified`, fecha y destino `blackboard`. No guarda
+cookies, URLs privadas ni identidad del usuario, y cada arranque sustituye la
+instantánea con una comprobación remota nueva. El diálogo para SSO es un
+`<dialog>` propio; nunca se usa `window.confirm`.
 
 Una acción interactiva iniciada desde la web se conserva en `sessionStorage` y
 se recupera tras recargar la página. La API también expone el job activo de
@@ -112,11 +119,12 @@ borrarlo. Deben estar cerradas todas las ventanas y procesos que usen el
 perfil. El reset solo elimina el estado local; no cierra la sesion del
 proveedor SSO en el servidor.
 
-Las URL directas de SCORM se identifican por `courseId` e `itemId`, no por una
-ruta canónica fija. Se aceptan prefijos intermedios variables antes de
-`scorm/overview`; si Blackboard redirige a stream, outline u otra página del
-curso, la navegación abre primero el enlace renderizado que conserva esa misma
-identidad. Las rutas conocidas generadas por la aplicación son solo fallback.
+Las URL directas de SCORM se identifican por `courseId` e `itemId`, pero la
+fuente se trata como una ruta exacta. Se aceptan prefijos intermedios variables
+antes de `scorm/overview` cuando el usuario los pega explícitamente. El código
+nunca fabrica `outline`, `grades` o `courseId`. Si Blackboard termina en Stream
+u otra página intermedia, solo sigue un `href` renderizado de mismo origen y
+misma identidad curso/item; cero o varios candidatos son errores visibles.
 
 ## Como esta estructurado Blackboard/SCORM
 
@@ -386,8 +394,10 @@ El script debe funcionar con cualquier tema SCORM/Rise similar. Por tanto:
 - no hardcodear textos de la unidad salvo filtros exactos aprobados;
 - parametrizar `COURSE_OUTLINE_URL`, `SCORM_TITLE` y `SCORM_MARKDOWN_OUT`;
 - aceptar las variantes de URL `outline/scorm/overview/...`,
-  `scorm/overview/...` y `grades/scorm/overview/...`; la identidad estable se
-  basa en `courseId` e `itemId`. En esos casos `SCORM_TITLE` es opcional y se
+  `scorm/overview/...` y `grades/scorm/overview/...` solo cuando vengan en la
+  entrada; no derivar una variante desde otra. Una página intermedia puede
+  aportar un enlace DOM coincidente que se seguirá literalmente. La caché se
+  separa por URL de fuente exacta. En esos casos `SCORM_TITLE` es opcional y se
   infiere desde el SCORM.
   Si `COURSE_OUTLINE_URL` apunta al outline del curso, entonces `SCORM_TITLE`
   sigue siendo necesario para localizar el item visible en Blackboard;

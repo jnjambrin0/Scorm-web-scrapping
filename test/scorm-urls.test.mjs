@@ -2,10 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  canonicalScormIdentity,
-  matchingScormTargetIndex,
+  matchingScormTargetIndexes,
   parseScormUrl,
-  scormUrlCandidates,
+  scormSourceIdentity,
 } from "../scripts/backend/scorm/urls.mjs";
 
 const bareUrl =
@@ -43,29 +42,31 @@ test("extracts stable course and item identity", () => {
   );
 });
 
-test("preserves the entered route and exposes known fallbacks last", () => {
-  assert.deepEqual(scormUrlCandidates(bareUrl), [
-    bareUrl,
-    outlineUrl,
-    "https://u-tad.blackboard.com/ultra/courses/_14330_1/grades/scorm/overview/_641800_1?courseId=_14330_1",
-  ]);
-  assert.equal(scormUrlCandidates(nestedUrl)[0], nestedUrl);
+test("preserves the entered direct route without creating fallback URLs", () => {
+  assert.equal(parseScormUrl(nestedUrl)?.inputUrl, nestedUrl);
   assert.equal(
     parseScormUrl(nestedUrl)?.route,
     "content/learning-modules",
   );
+  assert.equal(
+    parseScormUrl(`${bareUrl}#lesson`)?.inputUrl,
+    bareUrl,
+  );
+  assert.notEqual(scormSourceIdentity(bareUrl), scormSourceIdentity(outlineUrl));
 });
 
-test("matches a canonical Blackboard href by course/item identity, not exact URL text", () => {
-  const target = parseScormUrl(bareUrl);
-  const hrefs = [
-    "/ultra/courses/_999_1/outline/scorm/overview/_641800_1?courseId=_999_1",
-    "/ultra/courses/_14330_1/outline/scorm/overview/_641800_1/scorm/launchFrame?courseId=_14330_1",
-  ];
-
-  assert.equal(matchingScormTargetIndex(hrefs, "https://u-tad.blackboard.com/ultra/stream", target), 1);
-});
-
-test("uses the same cache identity for route and query variants", () => {
-  assert.equal(canonicalScormIdentity(bareUrl), canonicalScormIdentity(outlineUrl));
+test("selects only same-origin DOM links with the exact course and item identity", () => {
+  const target = parseScormUrl(reportedBareUrl);
+  assert.deepEqual(
+    matchingScormTargetIndexes(
+      [
+        "/ultra/courses/_14390_1/outline/scorm/overview/_689299_1?courseId=_14390_1",
+        "/ultra/courses/_14390_1/grades/scorm/overview/_other_1",
+        "https://other.example/ultra/courses/_14390_1/outline/scorm/overview/_689299_1",
+      ],
+      "https://u-tad.blackboard.com/ultra/stream",
+      target,
+    ),
+    [0],
+  );
 });

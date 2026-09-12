@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError, api, subscribeToJob } from "../lib/api";
-import type { Job, LogEntry } from "../lib/types";
+import {
+  clearSessionVerification,
+  loadSessionVerification,
+  saveSessionVerification,
+} from "../lib/session-verification";
+import type { Job, LogEntry, SessionSummary } from "../lib/types";
 import { classifyJobError, type ClassifiedError } from "../lib/errors";
 
 export type SessionCheckStatus =
@@ -8,6 +13,7 @@ export type SessionCheckStatus =
   | "checking"
   | "stored"
   | "verified"
+  | "stale"
   | "unauth"
   | "error";
 
@@ -18,9 +24,10 @@ export interface UseSessionCheck {
   checkedAt: Date | null;
   classifiedError: ClassifiedError | null;
   busy: boolean;
+  refreshing: boolean;
   interactive: boolean;
   bootstrapped: boolean;
-  run: (mode?: SessionCheckMode, interactive?: boolean) => Promise<void>;
+  run: (mode?: SessionCheckMode, interactive?: boolean, background?: boolean) => Promise<void>;
   cancel: () => Promise<void>;
   markVerified: () => void;
   markUnauthenticated: (error?: ClassifiedError) => void;
@@ -32,6 +39,7 @@ const RECONNECT_PROBE_MS = 5000;
 
 interface PersistedSessionJob {
   id: string;
+  background: boolean;
 }
 
 function readPersistedJob(): PersistedSessionJob | null {
@@ -39,17 +47,19 @@ function readPersistedJob(): PersistedSessionJob | null {
   try {
     const value = window.sessionStorage.getItem(STORAGE_KEY);
     if (!value) return null;
-    const parsed = JSON.parse(value) as PersistedSessionJob;
-    return parsed.id ? parsed : null;
+    const parsed = JSON.parse(value) as Partial<PersistedSessionJob>;
+    return typeof parsed.id === "string" && parsed.id
+      ? { id: parsed.id, background: parsed.background === true }
+      : null;
   } catch {
     return null;
   }
 }
 
-function writePersistedJob(job: Job) {
+function writePersistedJob(job: Job, background: boolean) {
   if (typeof window === "undefined") return;
   try {
-    window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ id: job.id }));
+    window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ id: job.id, background }));
   } catch {
     // Recovery is optional when sessionStorage is unavailable.
   }
@@ -68,20 +78,31 @@ function isSessionJob(job: Job): boolean {
   return job.command === "check-session" || job.command === "login";
 }
 
+function requiresLogin(session: SessionSummary): boolean {
+  return session.destination === "login" || session.outcome === "login-required";
+}
+
 /**
- * Owns every session-related child process, including recovery after a page
- * reload. Unlike export jobs, an interactive login has no user-entry timeout.
+ * Owns local, remote, and interactive session jobs. A successful remote result
+ * is persisted only as non-secret visual continuity; every app launch still
+ * performs a fresh remote check in the background.
  */
 export function useSessionCheck(): UseSessionCheck {
-  const [status, setStatus] = useState<SessionCheckStatus>("idle");
-  const [checkedAt, setCheckedAt] = useState<Date | null>(null);
+  const snapshot = loadSessionVerification();
+  const initialCheckedAt = snapshot ? new Date(snapshot.checkedAt) : null;
+  const [status, setStatus] = useState<SessionCheckStatus>(snapshot ? "verified" : "idle");
+  const [checkedAt, setCheckedAt] = useState<Date | null>(initialCheckedAt);
   const [classifiedError, setClassifiedError] = useState<ClassifiedError | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [interactive, setInteractive] = useState(false);
   const [bootstrapped, setBootstrapped] = useState(false);
   const closeRef = useRef<(() => void) | null>(null);
   const jobIdRef = useRef<string | null>(null);
   const logsRef = useRef<LogEntry[]>([]);
   const inFlightRef = useRef(false);
+  const backgroundRef = useRef(false);
+  const lastVerifiedAtRef = useRef<Date | null>(initialCheckedAt);
   const reconnectTimerRef = useRef<number | null>(null);
 
   const clearReconnectTimer = useCallback(() => {
@@ -91,53 +112,98 @@ export function useSessionCheck(): UseSessionCheck {
     }
   }, []);
 
+  const restoreVerifiedSnapshot = useCallback((at = new Date()) => {
+    const snapshot = saveSessionVerification(at);
+    const checkedAt = new Date(snapshot.checkedAt);
+    lastVerifiedAtRef.current = checkedAt;
+    setStatus("verified");
+    setCheckedAt(checkedAt);
+    setClassifiedError(null);
+  }, []);
+
+  const invalidateVerifiedSnapshot = useCallback(() => {
+    clearSessionVerification();
+    lastVerifiedAtRef.current = null;
+  }, []);
+
+  const keepLastKnownState = useCallback(() => {
+    if (lastVerifiedAtRef.current) {
+      setStatus("stale");
+      setCheckedAt(lastVerifiedAtRef.current);
+    } else {
+      setStatus("error");
+    }
+    setClassifiedError(null);
+  }, []);
+
   const finish = useCallback(
     (job: Job) => {
+      const background = backgroundRef.current;
       clearReconnectTimer();
       inFlightRef.current = false;
       jobIdRef.current = null;
+      backgroundRef.current = false;
+      setBusy(false);
+      setRefreshing(false);
       setInteractive(false);
       clearPersistedJob();
 
       const session = job.summary?.session;
-      setCheckedAt(new Date());
       if (session) {
         if (session.verified) {
-          setStatus("verified");
-          setClassifiedError(null);
+          restoreVerifiedSnapshot();
           return;
         }
         if (session.mode === "local" && session.profileEvidence === "present") {
           setStatus("stored");
+          setCheckedAt(new Date());
           setClassifiedError(null);
           return;
         }
+        if (session.mode === "remote" && requiresLogin(session)) {
+          invalidateVerifiedSnapshot();
+          setStatus("unauth");
+          setCheckedAt(new Date());
+          setClassifiedError(null);
+          return;
+        }
+        if (background) {
+          keepLastKnownState();
+          return;
+        }
 
-        const classified =
-          job.status === "failed"
-            ? classifyJobError(job.error, "check-session", logsRef.current)
-            : null;
-        setStatus("unauth");
-        setClassifiedError(classified);
+        setStatus("error");
+        setCheckedAt(new Date());
+        setClassifiedError(classifyJobError(job.error, "check-session", logsRef.current));
         return;
       }
 
       if (job.summary?.reachedBlackboard && job.status === "success") {
-        setStatus("verified");
-        setClassifiedError(null);
+        restoreVerifiedSnapshot();
         return;
       }
       if (job.status === "cancelled") {
-        setStatus("idle");
+        setStatus(lastVerifiedAtRef.current ? "stale" : "idle");
+        setCheckedAt(lastVerifiedAtRef.current);
         setClassifiedError(null);
+        return;
+      }
+      if (background) {
+        keepLastKnownState();
         return;
       }
 
       const classified = classifyJobError(job.error, "check-session", logsRef.current);
       setStatus(classified.isAuthIssue ? "unauth" : "error");
+      setCheckedAt(new Date());
       setClassifiedError(classified);
     },
-    [clearReconnectTimer],
+    [
+      clearReconnectTimer,
+      invalidateVerifiedSnapshot,
+      keepLastKnownState,
+      restoreVerifiedSnapshot,
+    ],
   );
 
   const scheduleReconnectProbe = useCallback(() => {
@@ -174,17 +240,21 @@ export function useSessionCheck(): UseSessionCheck {
   );
 
   const recover = useCallback(
-    (job: Job): boolean => {
+    (job: Job, background = false): boolean => {
       if (!isSessionJob(job)) return false;
       if (job.status !== "running") {
+        backgroundRef.current = background;
         finish(job);
         return true;
       }
       inFlightRef.current = true;
-      setStatus("checking");
+      backgroundRef.current = background;
+      setBusy(true);
+      setRefreshing(background);
+      setStatus(background && lastVerifiedAtRef.current ? "verified" : "checking");
       setInteractive(job.interactive || job.command === "login");
       setClassifiedError(null);
-      writePersistedJob(job);
+      writePersistedJob(job, background);
       attach(job);
       return true;
     },
@@ -198,7 +268,7 @@ export function useSessionCheck(): UseSessionCheck {
         const persisted = readPersistedJob();
         if (persisted) {
           const job = await api.getJob(persisted.id);
-          if (!cancelled && recover(job)) return;
+          if (!cancelled && recover(job, persisted.background)) return;
         }
 
         const active = await api.activeJobs();
@@ -236,10 +306,13 @@ export function useSessionCheck(): UseSessionCheck {
   }, [clearReconnectTimer]);
 
   const run = useCallback(
-    async (mode: SessionCheckMode = "local", interactive = false) => {
+    async (mode: SessionCheckMode = "local", interactive = false, background = false) => {
       if (inFlightRef.current) return;
       inFlightRef.current = true;
-      setStatus("checking");
+      backgroundRef.current = background;
+      setBusy(true);
+      setRefreshing(background);
+      setStatus(background && lastVerifiedAtRef.current ? "verified" : "checking");
       setInteractive(mode === "remote" && interactive);
       setClassifiedError(null);
       logsRef.current = [];
@@ -255,26 +328,33 @@ export function useSessionCheck(): UseSessionCheck {
             interactive: mode === "remote" && interactive,
           },
         });
-        writePersistedJob(job);
+        writePersistedJob(job, background);
         attach(job);
       } catch (error) {
         if (
           error instanceof ApiError &&
           error.busy?.source === "application-job" &&
           error.busy.job &&
-          recover(error.busy.job)
+          recover(error.busy.job, background)
         ) {
           return;
         }
         inFlightRef.current = false;
+        backgroundRef.current = false;
+        setBusy(false);
+        setRefreshing(false);
         setInteractive(false);
+        if (background) {
+          keepLastKnownState();
+          return;
+        }
         setCheckedAt(new Date());
         const message = error instanceof Error ? error.message : "Unknown error";
         setStatus("error");
         setClassifiedError(classifyJobError(message, "check-session", []));
       }
     },
-    [attach, clearReconnectTimer, recover],
+    [attach, clearReconnectTimer, keepLastKnownState, recover],
   );
 
   const cancel = useCallback(async () => {
@@ -290,29 +370,32 @@ export function useSessionCheck(): UseSessionCheck {
 
   const dismissError = useCallback(() => {
     setClassifiedError(null);
-    if (status === "error") setStatus("idle");
+    if (status === "error") setStatus(lastVerifiedAtRef.current ? "stale" : "idle");
   }, [status]);
 
   const markVerified = useCallback(() => {
     clearReconnectTimer();
     inFlightRef.current = false;
+    backgroundRef.current = false;
+    setBusy(false);
+    setRefreshing(false);
     setInteractive(false);
-    setStatus("verified");
-    setCheckedAt(new Date());
-    setClassifiedError(null);
-  }, [clearReconnectTimer]);
+    restoreVerifiedSnapshot();
+  }, [clearReconnectTimer, restoreVerifiedSnapshot]);
 
   const markUnauthenticated = useCallback((error?: ClassifiedError) => {
+    invalidateVerifiedSnapshot();
     setStatus("unauth");
     setCheckedAt(new Date());
     setClassifiedError(error ?? null);
-  }, []);
+  }, [invalidateVerifiedSnapshot]);
 
   return {
     status,
     checkedAt,
     classifiedError,
-    busy: status === "checking",
+    busy,
+    refreshing,
     interactive,
     bootstrapped,
     run,

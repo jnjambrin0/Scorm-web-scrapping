@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 
 import { openScorm, waitForFrame } from "../scorm/navigation.mjs";
-import { canonicalScormIdentity } from "../scorm/urls.mjs";
+import { scormSourceIdentity } from "../scorm/urls.mjs";
 import {
   NOTION_ASSET_DIR,
   NOTION_ASSET_MANIFEST_PATH,
@@ -199,8 +199,8 @@ export async function writeAssetManifest(scormExport, assets, extra = {}) {
     generatedAt: new Date().toISOString(),
     sourceMarkdown: manifestPath(scormExport.outPath),
     sourceManifest: manifestPath(scormExport.exportManifestPath),
-    sourceIdentity:
-      scormExport.sourceIdentity || canonicalScormIdentity(scormExport.courseOutlineUrl || ""),
+    sourceUrlIdentity:
+      scormExport.sourceUrlIdentity || scormSourceIdentity(scormExport.courseOutlineUrl || ""),
     title: scormExport.title,
     assets,
     ...extra,
@@ -232,11 +232,11 @@ export async function applyCachedAssetManifest(assets, scormExport) {
   // different Markdown export. The exporter wipes the asset directory on URL
   // mismatch, but if anything leaks through (corrupted state, hand-edited
   // manifest) this prevents cross-URL contamination of media references.
-  if (scormExport?.sourceIdentity) {
+  if (scormExport?.sourceUrlIdentity) {
     // Legacy asset manifests have no trustworthy source identity. Their
     // sourceManifest path may now point at a newer export, so refusing reuse
     // is safer than risking cross-course media contamination.
-    if (manifest.sourceIdentity !== scormExport.sourceIdentity) {
+    if (manifest.sourceUrlIdentity !== scormExport.sourceUrlIdentity) {
       return 0;
     }
   } else if (

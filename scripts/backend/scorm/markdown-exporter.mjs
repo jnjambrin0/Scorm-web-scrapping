@@ -13,10 +13,10 @@ import {
   SCORM_EXPORT_MANIFEST_PATH as EXPORT_MANIFEST_PATH,
 } from "../shared/paths.mjs";
 import { safeFilename } from "../shared/text.mjs";
-import { canonicalScormIdentity } from "./urls.mjs";
+import { scormSourceIdentity } from "./urls.mjs";
 import { promoteStagedExport } from "../notion/cache.mjs";
 import { activateNonNavigationControls, scrollWholeLesson } from "./lesson-actions.mjs";
-import { openScorm, waitForFrame } from "./navigation.mjs";
+import { openScorm, scormNavigationMetadata, waitForFrame } from "./navigation.mjs";
 import { readOverview, readScormPageTitle } from "./overview.mjs";
 import { renderRiseLessonInBrowser } from "./rise-renderer.mjs";
 
@@ -155,7 +155,8 @@ async function exportScormMarkdownFromPaths(options = {}) {
     const summary = {
       title: exportTitle,
       courseOutlineUrl: configuredCourseOutlineUrl(),
-      sourceIdentity: canonicalScormIdentity(configuredCourseOutlineUrl()),
+      sourceUrlIdentity: scormSourceIdentity(configuredCourseOutlineUrl()),
+      navigation: scormNavigationMetadata(scormPage),
       outPath: outputPath,
       rawDir: rawExportDir,
       exportManifestPath,

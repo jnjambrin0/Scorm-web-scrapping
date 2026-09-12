@@ -246,21 +246,22 @@ reinicia el comando.
 
 En la barra superior verás un chip de sesión. Posibles estados:
 
-- 🟢 **Sesión verificada** — todo correcto, sigue al paso 3.
+- 🟢 **Sesión verificada** — todo correcto, sigue al paso 3. Cada vez que
+  abres la aplicación, Blackboard se comprueba de nuevo en segundo plano; el
+  estado verde previo solo evita un parpadeo mientras llega esa respuesta.
 - 🟡 **Verificar e iniciar sesión** — pulsa el chip. Se abre una ventana de
   Chromium con Blackboard o el SSO de tu universidad. Introduce credenciales y
   completa MFA a tu ritmo. Cuando aterrice correctamente en Blackboard, la app
   detectará la sesión, cerrará su ventana y mostrará el estado verde.
-- 🟠 **Perfil guardado · sin confirmar** — hay datos locales, pero todavía no
-  se ha comprobado el servidor. Usa **Verificar e iniciar sesión** antes de
-  publicar.
-- ⚪ **Sin verificar** — usa **Verificar e iniciar sesión** para
-  confirmar el servidor.
+- 🟠 **Comprobación pendiente** — no se pudo actualizar Blackboard; la app
+  volverá a comprobarlo automáticamente al iniciar una exportación.
+- ⚪ **Verificando…** — la comprobación silenciosa de arranque sigue en curso.
 
-La acción interactiva se puede recuperar tras recargar la página: la ventana y
-el aviso de espera reaparecen junto con **Cancelar**. No abras un segundo login
-ni borres archivos `SingletonLock`; la app distingue una tarea recuperable de
-otra ventana externa que realmente mantenga ocupado el perfil.
+La aplicación no pide una confirmación del navegador para esa comprobación
+automática. Solo cuando Blackboard requiera credenciales aparecerá un diálogo
+integrado para abrir el SSO manual. La acción interactiva se puede recuperar
+tras recargar la página: la ventana y el aviso de espera reaparecen junto con
+**Cancelar**. No abras un segundo login ni borres archivos `SingletonLock`.
 
 La sesión se guarda en un perfil local de Chromium. No vuelves a tener que
 loguear hasta que tu universidad invalide la sesión (suele durar varios días).
@@ -282,17 +283,17 @@ La URL suele tener esta forma:
 https://<tu-institución>.blackboard.com/ultra/courses/_COURSE_1/outline/scorm/overview/_ITEM_1?courseId=_COURSE_1
 ```
 
-La app no sustituye esa ruta por `outline` ni por otra variante antes de
-consultar Blackboard. Reconoce cualquier URL bajo
-`/ultra/courses/<curso>/.../scorm/overview/<ítem>` y, si Blackboard redirige a
-una página intermedia, sigue primero el enlace que la propia plataforma muestra
-para el mismo curso e ítem. Las rutas `outline` y `grades` solo son fallbacks
-cuando no existe un enlace real resoluble.
+La app navega exactamente a la ruta y parámetros que pegues, salvo eliminar un
+fragmento `#...` que no forma parte de la petición. Nunca añade `outline`,
+`grades` ni `courseId`. Si Blackboard llega a Stream u otra página intermedia,
+solo seguirá un enlace que la propia plataforma haya renderizado y que coincida
+de forma única con el mismo curso e ítem; no inventa rutas ni adivina entre
+varios enlaces.
 
-Algunas instalaciones muestran `/scorm/overview/` o `/grades/scorm/overview/`
-en lugar de `/outline/scorm/overview/`. La aplicación acepta esas variantes y
-compara el curso y el item, no la cadena exacta del enlace. Copia la URL
-completa de Blackboard, incluyendo sus parámetros, cuando sea posible.
+Algunas instalaciones muestran `/scorm/overview/`, `/outline/scorm/overview/`
+o `/grades/scorm/overview/`. La aplicación acepta cualquiera de ellas cuando
+la pegas explícitamente. Copia la URL completa de Blackboard, incluyendo sus
+parámetros, cuando sea necesario.
 
 ### 4. Publica en Notion
 
@@ -352,7 +353,7 @@ Los cambios se guardan automáticamente (no hay botón "Guardar").
 |---|---|
 | Banner amarillo **"Configuración incompleta"** | Falta una variable en `.env`. Revisa la sección [Configuración](#configuración-el-env) y reinicia `npm run dev`. |
 | Chip dice **"Verificar e iniciar sesión"** ámbar | Tu sesión está caducada (o nunca has hecho login). Pulsa el chip y completa el login; la ventana se cerrará sola al confirmar Blackboard. |
-| Chip dice **"Perfil guardado · sin confirmar"** | Pulsa **Verificar e iniciar sesión**. Esta acción navega al servidor y puede contar para el límite de sesiones concurrentes. |
+| Chip dice **"Comprobación pendiente"** | Blackboard no se pudo actualizar en segundo plano. La app repetirá la comprobación al exportar; también puedes pulsar el chip para abrir el SSO manual. |
 | Error **"El perfil de Blackboard está en uso"** | Si la app ofrece recuperar o cancelar una tarea, úsala. Solo si indica navegador externo, cierra esa ventana. No borres `SingletonLock` manualmente. |
 | Error **"No se ha encontrado el SCORM en el curso"** | La URL terminó en otra página o Blackboard cambió el enlace. Copia de nuevo la URL del SCORM desde Blackboard. |
 | Error **"El inicio de sesión no ha terminado"** | La ventana se cerró antes de que Blackboard confirmase la sesión. No hay límite de tiempo para introducir la contraseña; vuelve a verificar e inicia sesión hasta llegar a Blackboard. |
@@ -393,7 +394,7 @@ Información para quien quiera entender o modificar el código.
 | `npm run login` | Abre Blackboard headed para iniciar sesión manualmente y termina al confirmar Blackboard. |
 | `npm run reset-session -- --confirm` | Mueve el perfil local a un backup fechado y deja preparado un perfil limpio. No cierra sesiones remotas. |
 | `npm run check-session` | Inspecciona el perfil local sin abrir ventana visible; no confirma el servidor. |
-| `npm run check-session -- --remote` | Navega a Blackboard para comprobar el servidor. Puede afectar al límite de sesiones concurrentes. |
+| `npm run check-session -- --remote` | Navega a Blackboard para comprobar el servidor. La interfaz lo ejecuta silenciosamente al arrancar; puede afectar al límite de sesiones concurrentes. |
 | `npm run check-session -- --remote --interactive` | Abre Blackboard, permite completar SSO manualmente y confirma/cierra al llegar a Blackboard. |
 | `npm run open` | Reabre Blackboard con el perfil guardado (depuración). |
 | `npm run open-scorm` | Abre la unidad SCORM configurada y guarda artefactos en `artifacts/`. |
