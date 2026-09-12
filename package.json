@@ -8,6 +8,8 @@
     "web": "node scripts/web-server.mjs",
     "test": "node --test test/*.test.mjs",
     "test:ui": "npm run build && node --test test/ui/queue-ui.test.mjs",
+    "docs:images": "node scripts/update-doc-images.mjs",
+    "docs:check": "node scripts/check-docs.mjs",
     "build": "tsc --noEmit && vite build",
     "login": "node scripts/blackboard-browser.mjs login",
     "reset-session": "node scripts/blackboard-reset-session.mjs",

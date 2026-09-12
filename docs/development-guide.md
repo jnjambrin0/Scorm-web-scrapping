@@ -4,6 +4,10 @@ Esta guia resume como se ha desarrollado el extractor, que decisiones tecnicas
 hay detras, que problemas son esperables y como deberia trabajar cualquier
 persona o agente que continue este proyecto.
 
+Para el mapa de módulos, estados y persistencia, consulta
+[Arquitectura y contratos](architecture.md). Para uso e instalación, consulta
+el [README](../README.md). Esta guía se centra en diagnóstico y mantenimiento.
+
 ## Objetivo del proyecto
 
 El objetivo no es hacer scraping HTML generico sin contexto. El objetivo es
@@ -12,7 +16,7 @@ SCORM/Rise, recorrer todas sus lecciones, extraer el contenido visible con la
 estructura correcta y poder llevarlo a otros destinos, empezando por Markdown y
 despues Notion con imagenes y videos nativos.
 
-El flujo actual tiene tres capas:
+El flujo actual tiene cuatro capas:
 
 1. Sesion autenticada persistente en Chrome/Chromium con Playwright.
 2. Extraccion semantica de contenido Rise/SCORM a Markdown.
@@ -69,6 +73,8 @@ Verificacion: `npm test`, `npm run build`, `git diff --check`; ademas
 `npm run test:ui` construye la interfaz y la prueba contra un servidor de cola
 simulado en un puerto efimero, sin perfil Blackboard ni llamadas a Notion.
 Las capturas de escritorio/movil y resultados van a `artifacts/queue-ui/`.
+`npm run docs:images` regenera además las capturas públicas con datos simulados;
+consulta [su inventario y procedimiento](assets/readme/README.md).
 
 Los comandos publicos siguen viviendo en `scripts/*.mjs`, pero esos ficheros son
 wrappers finos. La implementacion vive en `scripts/backend/`:
@@ -503,7 +509,8 @@ El script debe funcionar con cualquier tema SCORM/Rise similar. Por tanto:
 - preferir clases/componentes Rise a selectores de posicion;
 - conservar raw HTML y raw text para depuracion.
 
-El objetivo es que una unidad nueva solo requiera cambiar variables de entorno.
+El objetivo es que una unidad nueva solo requiera cambiar URL y destino en la
+interfaz (o usar overrides temporales al invocar la CLI).
 
 ## Exportacion a Notion
 
@@ -513,26 +520,30 @@ paginas desde Markdown, pero no expone una herramienta fiable para subir
 binarios locales. Notion necesita que imagenes y videos se suban como archivos o
 esten disponibles por URL publica.
 
-Variables previstas:
+Configuracion actual:
 
 - `NOTION_API_KEY`: token local en `.env`; no leerlo ni imprimirlo.
 - `NOTION_PARENT_PAGE_ID`: pagina padre donde crear la pagina exportada.
 - `NOTION_PARENT_PAGE_TITLE`: titulo de pagina padre usado cuando no hay
   `NOTION_PARENT_PAGE_ID`; default `Universidad`.
 - `NOTION_PAGE_TITLE`: override opcional del titulo.
-- `NOTION_VERSION`: default previsto `2026-03-11`.
+- `NOTION_VERSION = "2026-03-11"`: constante interna, no variable configurable.
+- `NOTION_MEDIA_WIDTH_RATIO` y `NOTION_PAID_PLAN`: overrides por trabajo desde
+  Ajustes; los elementos de cola conservan su propia instantánea.
 
 El flujo esta orquestado por `scripts/backend/notion/exporter.mjs` y expuesto por
 `scripts/export-scorm-notion.mjs`:
 
 1. Ejecutar o reutilizar la exportacion Markdown y su manifest.
 2. Extraer todas las referencias media del Markdown y/o del raw HTML.
-3. Resolver rutas `assets/...` contra la URL base del SCORM.
-4. Descargar cada asset usando el contexto autenticado de Playwright.
+3. Resolver rutas `assets/...` contra el `baseUri` real guardado por lección.
+4. Descargar las URLs absolutas dentro del frame autenticado, esperando al
+   contenido y aplicando reintentos transitorios acotados.
 5. Guardar un manifest con `source`, `absoluteUrl`, `localPath`, `mime`,
    `size` y `sha256`.
-6. Subir assets a Notion File Upload API.
-7. Crear la pagina Notion y anadir bloques en tandas de maximo 100.
+6. Validar recursos y resolver el padre; subir assets a Notion File Upload API.
+7. Registrar checkpoints de creación, crear la pagina y anadir bloques en
+   tandas de maximo 100. La cola conserva el enlace aunque falle un paso posterior.
 8. Cachear uploads por `sha256` dentro del run.
 9. Si un video no puede ser bloque `video`, subirlo como `file`.
 
@@ -576,8 +587,8 @@ npm run build
 - El frontend no debe recibir `.env`, tokens de Notion, cookies, cabeceras ni
   URLs firmadas. Los overrides permitidos son nombres no secretos como
   `COURSE_OUTLINE_URL`, `SCORM_TITLE` opcional, `SCORM_MARKDOWN_OUT`,
-  `NOTION_PARENT_PAGE_TITLE`, `NOTION_PARENT_PAGE_ID`, `NOTION_PAGE_TITLE` y
-  `NOTION_VERSION`.
+  `NOTION_PARENT_PAGE_TITLE`, `NOTION_PARENT_PAGE_ID`, `NOTION_PAGE_TITLE`,
+  `NOTION_MEDIA_WIDTH_RATIO` y `NOTION_PAID_PLAN`. `NOTION_VERSION` no es un override.
 
 ## Seguridad
 
@@ -585,7 +596,7 @@ Reglas no negociables:
 
 - no leer `.env` para "ver que tiene";
 - no imprimir tokens, cookies, cabeceras Authorization ni URLs firmadas;
-- no commitear `exports/`, `artifacts/`, perfiles de navegador ni `.env`;
+- no commitear `.local-state/`, `exports/`, `artifacts/`, perfiles de navegador ni `.env`;
 - no copiar cookies desde el Chrome personal del usuario;
 - no automatizar credenciales Microsoft en codigo;
 - tratar el perfil persistente como una llave de acceso.
@@ -636,8 +647,9 @@ ultima exportacion valida.
 
 ### Blackboard muestra un modal de sesion concurrente
 
-El script ya intenta cerrar el modal. Si cambia el selector, depurarlo con
-captura visual y actualizar solo esa funcion.
+El script retira el nodo del DOM sin pulsar «Cerrar». Ese botón puede invalidar
+otras sesiones: no usarlo para desbloquear la interfaz. Si cambia el selector,
+depurarlo con captura visual y actualizar solo esa función.
 
 ### No aparece el frame SCORM
 
@@ -677,7 +689,11 @@ Antes de tocar codigo:
 
 Despues de tocar codigo:
 
-- ejecutar `npm run export-scorm-md`;
+- ejecutar `npm test`, `npm run build` y `git diff --check`;
+- para frontend, ejecutar `npm run test:ui` con servicios simulados;
+- si hay cambios visibles en documentación, ejecutar `npm run docs:images`;
+- solo con una sesión real autorizada, ejecutar la exportación afectada
+  (`npm run export-scorm-md` o dry-run) sin otra instancia simultánea;
 - revisar patrones de fallo con `rg`;
 - abrir el fragmento Markdown afectado;
 - comparar con raw HTML;

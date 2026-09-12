@@ -5,7 +5,7 @@
 <h1 align="center">SCORM → Notion</h1>
 
 <p align="center">
-  <a href="https://nodejs.org/"><img src="https://img.shields.io/badge/Node.js-20%2B-339933?logo=node.js&logoColor=white" alt="Node.js 20+" /></a>
+  <a href="https://nodejs.org/"><img src="https://img.shields.io/badge/Node.js-24-339933?logo=node.js&logoColor=white" alt="Entorno validado con Node.js 24" /></a>
   <a href="#seguridad"><img src="https://img.shields.io/badge/API-localhost_only-blue" alt="Local only" /></a>
   <a href="https://developers.notion.com/"><img src="https://img.shields.io/badge/Notion_API-2026--03--11-000000?logo=notion&logoColor=white" alt="Notion API" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT" /></a>
@@ -14,7 +14,14 @@
 Convierte las unidades de tus asignaturas en Blackboard a páginas nativas de
 Notion para tomar apuntes encima. Pegas la URL de la unidad, la app se encarga
 del resto: descarga el contenido autenticado, lo convierte y lo sube como
-bloques de Notion con imágenes, vídeos, tablas y listas.
+bloques de Notion con imágenes, vídeos, tablas y listas. Puedes publicar una
+unidad o preparar una **cola editable de hasta 10**, cada una con su título y
+destino, y consultar el resumen con enlaces al terminar.
+
+![Cola de publicaciones con un trabajo activo y elementos pendientes editables](docs/assets/readme/queue-running.png)
+
+*Interfaz real con datos simulados. Las capturas de la aplicación se regeneran
+con `npm run docs:images`; no muestran una cuenta ni publicaciones reales.*
 
 ## Índice
 
@@ -32,11 +39,13 @@ bloques de Notion con imágenes, vídeos, tablas y listas.
   - [2. Inicia sesión en Blackboard](#2-inicia-sesión-en-blackboard)
   - [3. Copia la URL de la unidad](#3-copia-la-url-de-la-unidad)
   - [4. Publica en Notion](#4-publica-en-notion)
-- [Ajustes opcionales](#ajustes-opcionales)
 - [Cola de publicaciones](#cola-de-publicaciones)
+- [Ajustes opcionales](#ajustes-opcionales)
 - [Solución de problemas](#solución-de-problemas)
 - [Seguridad](#seguridad)
 - [Referencia técnica](#referencia-técnica)
+- [Arquitectura y contratos internos](docs/architecture.md)
+- [Guía de desarrollo y diagnóstico](docs/development-guide.md)
 
 ## ¿Qué hace esta app y para quién es?
 
@@ -48,6 +57,8 @@ automatiza:
 - Descarga el contenido autenticado: textos, imágenes, vídeos.
 - Crea una página nueva en Notion con bloques nativos (no como un PDF, no como
   un export raro). Editable, comentable, todo dentro del workspace.
+- Guarda la cola en tu ordenador, permite ajustar pendientes durante la
+  ejecución y recupera el estado al recargar la interfaz.
 
 La app es 100 % local. No envía nada a ningún servidor que no sea tu propio
 ordenador y los servicios oficiales (Microsoft + Blackboard + Notion).
@@ -76,7 +87,10 @@ canal de notificación adicional.
 ## Requisitos
 
 - macOS, Linux o Windows.
-- [Node.js 20 o superior](https://nodejs.org).
+- [Node.js 24](https://nodejs.org), versión usada en la validación local.
+  Vite 8 admite Node `^20.19.0 || >=22.12.0`; Node 20.0 no basta.
+- Google Chrome para la suite visual actual; el navegador de producción
+  intenta Chrome y dispone de fallback al Chromium instalado por Playwright.
 - Una cuenta de Blackboard en tu universidad.
 - Una cuenta de Notion (gratuita sirve).
 
@@ -179,11 +193,12 @@ El paso crítico es este: una conexión interna recién creada **no tiene acceso
 ninguna página por defecto**. Aunque el token sea correcto, Notion rechazará la
 petición si no compartes antes la página padre con la conexión.
 
-1. En Notion, necesitas tener al menos una pagina donde guardar el contenido.
-   Esta va a ser la pagina padre en la aplicacion, recuerda el nombre y ponlo
-   en los Ajustes de la app, en **Página padre en Notion**.
-3. Vuelve a la configuración de la conexión `SCORM Sync` en https://www.notion.so/profile/integrations.
-4. Entra en la pestaña **Content access**.
+1. Crea o elige en Notion una página donde guardar los apuntes. Introduce su
+   nombre en **Página padre en Notion** o usa su ID para identificarla sin
+   ambigüedad.
+2. Vuelve a la configuración de la conexión `SCORM Sync` en el
+   [panel de conexiones](https://www.notion.so/profile/integrations).
+3. Entra en la pestaña **Content access**.
 
 ![Pestaña Content access de la conexión de Notion](docs/assets/readme/notion-api-guide/step5.png)
 
@@ -229,7 +244,7 @@ El subdominio cambia según la universidad. Si no estás seguro:
 3. Copia la parte hasta `/ultra/stream`.
 4. Pégala en `.env` como `BLACKBOARD_BASE_URL`.
 
-## Uso (Leer detenidamente antes de comenzar)
+## Uso
 
 ### 1. Arranca la app
 
@@ -243,6 +258,11 @@ Abre la URL que imprima Vite, normalmente
 Si aparece un banner amarillo "Configuración incompleta", revisa el `.env` y
 reinicia el comando.
 
+Tras actualizar el código, detén el servidor anterior con `Ctrl+C`, espera a
+que termine y vuelve a ejecutar `npm run dev`: recargar la pestaña no reinicia
+el backend. Evita ejecutar dos instancias de la aplicación o una exportación
+CLI mientras esté trabajando la cola.
+
 ### 2. Inicia sesión en Blackboard
 
 En la barra superior verás un chip de sesión. Posibles estados:
@@ -250,7 +270,8 @@ En la barra superior verás un chip de sesión. Posibles estados:
 - 🟢 **Sesión verificada** — todo correcto, sigue al paso 3. Cada vez que
   abres la aplicación, Blackboard se comprueba de nuevo en segundo plano; el
   estado verde previo solo evita un parpadeo mientras llega esa respuesta.
-- 🟡 **Verificar e iniciar sesión** — pulsa el chip. Se abre una ventana de
+- 🟡 **No autenticada** — pulsa **Verificar e iniciar sesión** y confirma
+  **Abrir Blackboard** en el diálogo integrado. Se abre una ventana de
   Chromium con Blackboard o el SSO de tu universidad. Introduce credenciales y
   completa MFA a tu ritmo. Cuando aterrice correctamente en Blackboard, la app
   detectará la sesión, cerrará su ventana y mostrará el estado verde.
@@ -261,11 +282,18 @@ En la barra superior verás un chip de sesión. Posibles estados:
 La aplicación no pide una confirmación del navegador para esa comprobación
 automática. Solo cuando Blackboard requiera credenciales aparecerá un diálogo
 integrado para abrir el SSO manual. La acción interactiva se puede recuperar
-tras recargar la página: la ventana y el aviso de espera reaparecen junto con
-**Cancelar**. No abras un segundo login ni borres archivos `SingletonLock`.
+tras recargar la página: la app se reconecta a la tarea existente y vuelve a
+mostrar el aviso con **Cancelar**; no crea otro navegador. No abras un segundo
+login ni borres archivos `SingletonLock`.
+
+<p align="center">
+  <img src="docs/assets/readme/session-verification.png" alt="Diálogo integrado para verificar e iniciar sesión en Blackboard" width="640" />
+</p>
 
 La sesión se guarda en un perfil local de Chromium. No vuelves a tener que
-loguear hasta que tu universidad invalide la sesión (suele durar varios días).
+loguear mientras Blackboard mantenga válida esa sesión. Su duración depende
+del centro. La comprobación remota automática puede contar para el límite de
+sesiones concurrentes; se aplaza mientras haya una tarea de navegador activa.
 
 ### 3. Copia la URL de la unidad
 
@@ -275,19 +303,21 @@ En Blackboard, dentro de tu navegador normal:
 2. Entra al **tema** que quieres convertir.
 3. Haz clic en **Apuntes** (o como tu profesor haya llamado al SCORM de la
    unidad).
-4. **Sin esperar a que se cargue la unidad**, copia la URL de la barra de
-   direcciones del navegador.
+4. Copia la URL de la página de la unidad (`scorm/overview/...`), antes de
+   iniciar el intento. No copies las rutas intermedias `launchFrame` o
+   `modern.html` del reproductor.
 
 La URL suele tener esta forma:
 
 ```
-https://<tu-institución>.blackboard.com/ultra/courses/_COURSE_1/outline/scorm/overview/_ITEM_1?courseId=_COURSE_1
+https://<tu-institución>.blackboard.com/ultra/courses/_COURSE_1/scorm/overview/_ITEM_1
 ```
 
-La app navega exactamente a la ruta y parámetros que pegues, salvo eliminar un
+La app inicializa primero Blackboard en la misma pestaña del contexto de
+exportación. Después navega exactamente a la ruta y parámetros que pegues, salvo eliminar un
 fragmento `#...` que no forma parte de la petición. Nunca añade `outline`,
-`grades` ni `courseId`. Si Blackboard llega a Stream u otra página intermedia,
-solo seguirá un enlace que la propia plataforma haya renderizado y que coincida
+`grades` ni `courseId`. Si el primer intento llega a Stream, reintenta una vez
+la misma URL. Después solo seguirá un enlace que Blackboard haya renderizado y que coincida
 de forma única con el mismo curso e ítem; no inventa rutas ni adivina entre
 varios enlaces.
 
@@ -300,7 +330,9 @@ parámetros, cuando sea necesario.
 
 De vuelta en la app local:
 
-1. Pega la URL en el campo **URL de Blackboard**.
+![Formulario actual de publicación individual](docs/assets/readme/local-app.png)
+
+1. Abre **Publicación individual** y pega la URL en **URL de Blackboard**.
 2. Comprueba que **Página padre en Notion** dice el nombre de la página que
    compartiste con tu conexión interna (paso 3 de Configuración).
 3. (Opcional) Escribe un título para la nueva página de Notion. Si lo dejas
@@ -309,8 +341,8 @@ De vuelta en la app local:
    todo y prepara los bloques, **sin tocar Notion**.
 5. Si los contadores (lecciones, bloques, imágenes, vídeos) tienen pinta de
    estar bien y los fallos son cero, pulsa **Publicar en Notion**.
-6. Espera a que termine — verás barra de progreso y fases. Suele tardar entre
-   1 y 5 minutos por unidad.
+6. Espera a que termine — verás barra de progreso y fases. El tiempo depende
+   del tamaño de los medios, la red y la disponibilidad de Blackboard/Notion.
 7. Al terminar pulsa el botón verde **Abrir página en Notion** para verla en
    tu workspace.
 
@@ -340,6 +372,26 @@ en Notion. Revisa el resultado y el destino antes de reintentarlo.
 Al terminar aparece el resumen con resultados y enlaces. Una publicación
 incompleta conserva su enlace; reintentar crea otra página, no repara ni borra
 la anterior. Los lotes anteriores quedan disponibles en la misma vista.
+
+![Resumen del lote con publicaciones completas, una incompleta y un fallo simulado](docs/assets/readme/queue-summary.png)
+
+Si un intento pudo crear una página, el reintento requiere revisión explícita:
+
+<p align="center">
+  <img src="docs/assets/readme/publication-review.png" alt="Confirmación antes de reintentar una publicación que pudo crear una página en Notion" width="640" />
+</p>
+
+<details>
+<summary>Ver la cola en una pantalla estrecha</summary>
+
+<p align="center">
+  <img src="docs/assets/readme/queue-mobile.png" alt="Cola adaptable a una pantalla de 390 píxeles de ancho" width="320" />
+</p>
+
+La interfaz se adapta a pantallas estrechas; la ejecución sigue perteneciendo
+al servidor local del ordenador, no a un servicio remoto.
+
+</details>
 
 La cola se guarda en `.local-state/queues.json`, fuera de la caché `exports/` y
 excluida de Git. Contiene URLs y destinos introducidos por ti y resultados,
@@ -386,18 +438,21 @@ Puedes cambiar:
   **5 GiB en los planes de pago** (Plus, Business, Education, Enterprise).
   Activado por defecto porque la mayoría de estudiantes tenéis
   [Notion Education gratis](https://www.notion.com/students). Detalles:
-  - **Activado**: subimos todo sin comprobaciones previas.
+  - **Activado**: se omite el filtro local de 5 MiB; se siguen validando las
+    descargas y Notion aplica los límites reales del workspace.
   - **Desactivado**: cualquier imagen o vídeo por encima de 5 MiB se omite
     automáticamente y en su sitio aparece un párrafo `[Imagen omitido: nombre
     — supera 5 MiB del plan gratuito de Notion]`. Así el publish no falla.
   - Si lo dejas activado pero tu workspace es Free, Notion devuelve
     `file_upload_invalid_size`. La app lo detecta y te muestra un error con
-    tres opciones: desactivar el switch, contratar
+    una explicación para desactivar el switch o consultar
     [Education](https://www.notion.com/students) (gratis para estudiantes
     verificados) o pasar a [Plus / Business](https://www.notion.com/pricing).
 - **Sistema**: ver de un vistazo si tu `.env` está bien configurado.
 
 Los cambios se guardan automáticamente (no hay botón "Guardar").
+El límite de archivos del workspace y el uso de multipart están documentados
+en la [guía oficial de archivos y medios de Notion](https://developers.notion.com/guides/data-apis/working-with-files-and-media).
 
 ## Solución de problemas
 
@@ -407,14 +462,19 @@ Los cambios se guardan automáticamente (no hay botón "Guardar").
 | Chip dice **"Verificar e iniciar sesión"** ámbar | Tu sesión está caducada (o nunca has hecho login). Pulsa el chip y completa el login; la ventana se cerrará sola al confirmar Blackboard. |
 | Chip dice **"Comprobación pendiente"** | Blackboard no se pudo actualizar en segundo plano. La app repetirá la comprobación al exportar; también puedes pulsar el chip para abrir el SSO manual. |
 | Error **"El perfil de Blackboard está en uso"** | La verificación automática puede estar usando el perfil durante unos segundos. Si la app muestra una tarea activa, espera o recupérala; solo si indica navegador externo, cierra esa ventana. No borres `SingletonLock` manualmente. |
+| **Cola recuperada tras reiniciar** | Revisa los intentos interrumpidos y pulsa **Reanudar cola**. Cerrar la pestaña no detiene el servidor; reiniciar el servidor sí requiere recuperación. |
+| **Otra instancia está usando esta cola** | Cierra la otra instancia de la aplicación y reinicia esta. No borres sus archivos de bloqueo ni arranques más servidores para saltarte la exclusión. |
+| **No se puede guardar la cola** | Comprueba espacio y permisos del directorio `.local-state/`. Conserva su contenido y reinicia una vez resuelto el problema. |
+| **Publicación incompleta / Interrumpida** | Revisa el enlace de Notion o la página padre antes de reintentar: el nuevo intento crea otra página. |
+| **No se pudieron preparar todos los recursos** | Revisa el nombre y la causa de cada asset. Reintenta sin forzar actualización para conservar las descargas válidas. Un 404 no demuestra que la sesión haya caducado. |
 | Error **"No se ha encontrado el SCORM en el curso"** | La URL terminó en otra página o Blackboard cambió el enlace. Copia de nuevo la URL del SCORM desde Blackboard. |
 | Error **"El inicio de sesión no ha terminado"** | La ventana se cerró antes de que Blackboard confirmase la sesión. No hay límite de tiempo para introducir la contraseña; vuelve a verificar e inicia sesión hasta llegar a Blackboard. |
 | Error **"La caché de SCORM no es válida"** | La aplicación reconstruirá la caché y conservará la última exportación válida si la nueva navegación falla. Tras una actualización de schema, una regeneración única es normal. |
-| Toast **"Blackboard no responde"** | Internet lento o la URL del curso no carga en 30 s. Reintenta cuando tengas mejor conexión. |
-| Toast **"URL no accesible"** | El dominio que pusiste en `BLACKBOARD_BASE_URL` no resuelve. Probable typo en el subdominio. |
+| Toast **"Blackboard no responde"** | Se agotó una espera de navegación o contenido. Revisa conectividad y detalles técnicos; los límites dependen de la fase. |
+| Toast **"URL no accesible"** | Revisa el dominio de Blackboard y la conectividad. Puede ser DNS, conexión rechazada u otro error de red indicado en los detalles. |
 | Error **"Notion ha rechazado la petición"** | La conexión interna no tiene acceso a la página padre, el token está mal pegado o falta alguna capacidad. Revisa el paso [Dar acceso a la página padre en Notion](#3-dar-acceso-a-la-página-padre-en-notion). |
 | Error **"Notion rechazó un archivo por tamaño"** | Algún archivo supera el límite de tu workspace (5 MiB en Free, 5 GiB en Plus/Business/Education). Ve a Ajustes y desactiva **"Tengo Notion Plus, Business o Education"** para que los archivos grandes se omitan automáticamente, o sube de plan (Education es gratis para estudiantes). |
-| Error **"Sesión de Blackboard caducada"** durante un publish | Microsoft te ha invalidado la sesión a mitad de proceso. Cancela el job, pulsa el chip para re-loguear, y reintenta. |
+| Error **"Sesión de Blackboard caducada"** durante un publish | Blackboard requiere autenticación de nuevo. En la cola usa **Iniciar sesión y reanudar**; en publicación individual usa el chip y reintenta. |
 | **"Navegador de Playwright no instalado"** | Ejecuta `npx playwright install chromium` en la raíz del proyecto. |
 
 Si nada de lo anterior cuadra, abre los detalles técnicos del toast o de la
@@ -427,7 +487,7 @@ tarjeta de error: incluyen las últimas líneas del log con el error real.
 - Las cookies de Blackboard se guardan en un perfil de Chromium privado, por
   defecto en `~/.scorm-scraping/chromium-profile`. Trátalo como material
   sensible: si lo copias, copias tu sesión.
-- No subas a Git: `.env`, `exports/`, `artifacts/` ni el perfil de Chromium.
+- No subas a Git: `.env`, `.local-state/`, `exports/`, `artifacts/` ni el perfil de Chromium.
   Ya están en `.gitignore`, pero conviene saberlo.
 - Los logs nunca imprimen tu token de Notion ni cabeceras de autenticación.
 
@@ -443,6 +503,9 @@ Información para quien quiera entender o modificar el código.
 | `npm run web` | Solo la API; sirve `dist/` si has hecho build. |
 | `npm test` | Ejecuta la suite de regresión local con Node. |
 | `npm run build` | Comprueba tipos y construye el frontend. |
+| `npm run test:ui` | Construye y prueba la interfaz con servicios simulados; guarda capturas en `artifacts/queue-ui/`. |
+| `npm run docs:images` | Regenera las siete capturas de la aplicación para este README tras superar la prueba visual. No abre Blackboard real. |
+| `npm run docs:check` | Comprueba enlaces locales, imágenes y anclas de la documentación. |
 | `npm run login` | Abre Blackboard headed para iniciar sesión manualmente y termina al confirmar Blackboard. |
 | `npm run reset-session -- --confirm` | Mueve el perfil local a un backup fechado y deja preparado un perfil limpio. No cierra sesiones remotas. |
 | `npm run check-session` | Inspecciona el perfil local sin abrir ventana visible; no confirma el servidor. |
@@ -458,17 +521,34 @@ Información para quien quiera entender o modificar el código.
 
 - **`src/`** — frontend React 19 + Vite 8 + Tailwind v4 (estética macOS
   Sonoma, light mode).
-- **`scripts/*.mjs`** — entrypoints CLI (cada uno carga `dotenv/config` al
-  inicio).
+- **`scripts/*.mjs`** — entrypoints CLI de producción (cargan `dotenv/config`)
+  y herramientas de documentación aisladas, que no cargan credenciales.
 - **`scripts/backend/browser/`** — sesión persistente de Playwright.
 - **`scripts/backend/scorm/`** — extracción de Rise/SCORM a Markdown.
 - **`scripts/backend/notion/`** — descarga de assets autenticados, conversión
   a bloques nativos, subida vía Notion API.
-- **`scripts/backend/web/`** — API local + SSE.
+- **`scripts/backend/web/`** — API local, cola durable, admisión de trabajos y SSE.
+- **`docs/architecture.md`** — contratos, ciclo de vida y mapa de persistencia.
 - **`docs/development-guide.md`** — guía interna para extender o depurar el
   extractor.
-- **`CLAUDE.md`** — knowledge base completo para agentes que trabajen sobre
-  el repo.
+- **`AGENTS.md`** — referencia local para agentes; **`CLAUDE.md`** remite a ella
+  para evitar dos copias divergentes. Ambos se mantienen fuera de Git.
+
+### Actualizar esta documentación
+
+Las capturas de la aplicación proceden de fixtures con URLs y resultados
+ficticios. Para actualizarlas y verificar enlaces internos:
+
+```bash
+npm run docs:images
+npm run docs:check
+git diff --check
+```
+
+Revisa visualmente las imágenes antes de incluirlas en un commit. La guía de
+configuración de Notion conserva sus capturas ilustrativas; contrasta cambios
+de esa interfaz con su documentación oficial. El procedimiento completo está
+en [docs/assets/readme/README.md](docs/assets/readme/README.md).
 
 ### Variables avanzadas (raramente necesarias)
 

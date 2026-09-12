@@ -79,6 +79,9 @@ test("queue UI: live editing, reload, mixed results, desktop/mobile and recovery
   const f = await fixture();
   const browser = await chromium.launch({ channel: "chrome", headless: true });
   try {
+    const artifacts = path.join(root, "artifacts", "queue-ui");
+    await fs.mkdir(artifacts, { recursive: true });
+    const docs = process.env.SCORM_DOC_SCREENSHOTS === "1";
     await f.mutate("create");
     for (let i = 0; i < 10; i++) await f.mutate("add", { config: {
       url: `https://fixture.blackboard.invalid/ultra/courses/_14390_1/scorm/overview/_${689299 + i}_1`,
@@ -91,6 +94,20 @@ test("queue UI: live editing, reload, mixed results, desktop/mobile and recovery
     page.on("pageerror", (error) => errors.push(error.message));
     await page.goto(f.url);
     await page.getByRole("heading", { name: "Tus temarios, en orden" }).waitFor();
+    if (docs) {
+      await page.getByRole("button", { name: "Publicación individual", exact: true }).click();
+      await page.getByRole("textbox", { name: "URL de Blackboard", exact: true }).fill("https://campus.example/ultra/courses/_COURSE_1/scorm/overview/_ITEM_1");
+      await page.getByRole("textbox", { name: "Título de la página nueva", exact: true }).fill("Seguridad perimetral");
+      await page.getByText("Sesión verificada", { exact: true }).waitFor();
+      await page.screenshot({ path: path.join(artifacts, "local-app.png"), fullPage: true, animations: "disabled" });
+      await page.setViewportSize({ width: 1440, height: 1500 });
+      await page.getByRole("button", { name: "Abrir ajustes", exact: true }).click();
+      await page.getByRole("dialog").screenshot({ path: path.join(artifacts, "settings.png"), animations: "disabled" });
+      await page.keyboard.press("Escape");
+      await page.getByRole("dialog").waitFor({ state: "hidden" });
+      await page.setViewportSize({ width: 1440, height: 1050 });
+      await page.getByRole("button", { name: "Cola", exact: true }).click();
+    }
     await page.getByRole("button", { name: "Iniciar cola", exact: true }).click();
     await until(() => f.jobs.length === 1);
     await page.getByText("Publicación actual", { exact: true }).waitFor();
@@ -108,7 +125,6 @@ test("queue UI: live editing, reload, mixed results, desktop/mobile and recovery
     await page.locator("form").getByLabel("Página padre en Notion", { exact: true }).fill("Destino editado");
     await page.getByRole("button", { name: "Guardar cambios", exact: true }).click();
     await page.getByText("Destino: Destino editado", { exact: true }).waitFor();
-    const artifacts = path.join(root, "artifacts", "queue-ui"); await fs.mkdir(artifacts, { recursive: true });
     await page.evaluate(() => { window.scrollTo(0, 0); document.querySelector("ol.overflow-y-auto")?.scrollTo(0, 0); });
     await page.screenshot({ path: path.join(artifacts, "desktop-running.png"), fullPage: true, animations: "disabled" });
     await page.setViewportSize({ width: 390, height: 844 });
@@ -134,6 +150,7 @@ test("queue UI: live editing, reload, mixed results, desktop/mobile and recovery
     await page.getByRole("button", { name: "Reintentar", exact: true }).first().click();
     await page.getByRole("dialog").waitFor();
     assert.equal(await page.getByRole("heading", { name: "Revisar antes de reintentar" }).count(), 1);
+    if (docs) await page.getByRole("dialog").screenshot({ path: path.join(artifacts, "publication-review.png"), animations: "disabled" });
     await page.keyboard.press("Escape");
     await page.getByRole("dialog").waitFor({ state: "hidden" });
     assert.equal(await page.getByRole("dialog").count(), 0);
@@ -149,6 +166,7 @@ test("queue UI: live editing, reload, mixed results, desktop/mobile and recovery
     f.jobs[10].finish("failed", { errorCode: "session-required", error: "Blackboard bootstrap requires login." });
     await page.getByRole("button", { name: "Iniciar sesión y reanudar", exact: true }).click();
     await page.getByRole("dialog").waitFor();
+    if (docs) await page.getByRole("dialog").screenshot({ path: path.join(artifacts, "session-verification.png"), animations: "disabled" });
     f.holdAuth();
     await page.getByRole("button", { name: "Abrir Blackboard", exact: true }).click();
     await until(() => f.authPending());
