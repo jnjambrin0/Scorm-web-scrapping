@@ -45,14 +45,17 @@ export interface JobRequest {
     refresh?: boolean;
     deleteAfter?: boolean;
     remote?: boolean;
+    interactive?: boolean;
   };
 }
 
 export interface SessionSummary {
   mode: "local" | "remote";
+  interaction?: "none" | "manual";
   profileEvidence: "none" | "present";
   verified: boolean;
   destination: "not-checked" | "blackboard" | "login" | "unknown";
+  outcome?: "verified" | "login-required" | "closed-before-verification" | "cancelled";
 }
 
 export interface JobSummary {
@@ -93,6 +96,17 @@ export interface Job {
   summary: JobSummary | null;
   finalUrl: string | null;
   error: string | null;
+  interactive?: boolean;
+}
+
+export interface ActiveJobsResponse {
+  jobs: Job[];
+  profile: { state: "available" | "external-browser" };
+}
+
+export interface ProfileBusyPayload {
+  source: "application-job" | "external-browser";
+  job?: Job;
 }
 
 export interface PhaseProgress {

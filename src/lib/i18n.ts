@@ -237,8 +237,8 @@ export const STRINGS = {
   "error.generic.hint":          { es: "Mira los detalles técnicos o reintenta cuando estés listo.",
                                    en: "Check technical details or retry when ready." },
   "error.profile.busy":           { es: "El perfil de Blackboard está en uso",           en: "The Blackboard profile is busy" },
-  "error.profile.busy.hint":      { es: "Cierra la otra ventana o proceso de Blackboard y vuelve a intentarlo.",
-                                    en: "Close the other Blackboard window or process and try again." },
+  "error.profile.busy.hint":      { es: "Si la aplicación ofrece recuperar o cancelar una tarea activa, úsala. Si no, cierra la otra ventana de Blackboard y vuelve a intentarlo.",
+                                    en: "Use the app's recover or cancel action when available. Otherwise, close the other Blackboard window and try again." },
   "error.scorm.url":              { es: "La URL SCORM no ha abierto la unidad",           en: "The SCORM URL did not open the unit" },
   "error.scorm.url.hint":         { es: "Comprueba que la URL pertenece a ese curso y que la sesión remota está confirmada.",
                                     en: "Check that the URL belongs to that course and that the remote session is confirmed." },
@@ -249,27 +249,27 @@ export const STRINGS = {
   "error.cache.invalid.hint":     { es: "La caché se volverá a generar sin borrar una exportación anterior válida.",
                                     en: "The cache will be regenerated without deleting a previous valid export." },
   "error.login.incomplete":       { es: "El inicio de sesión no ha terminado",            en: "Sign-in did not finish" },
-  "error.login.incomplete.hint":  { es: "La ventana se cerró antes de llegar a Blackboard. Vuelve a iniciar sesión y espera a que cargue el curso.",
-                                    en: "The window closed before reaching Blackboard. Sign in again and wait for the course to load." },
+  "error.login.incomplete.hint":  { es: "La ventana se cerró antes de que Blackboard confirmase la sesión. Vuelve a verificar e inicia sesión hasta llegar a Blackboard.",
+                                    en: "The window closed before Blackboard confirmed the session. Verify and sign in again until Blackboard loads." },
 
   // Result card affordances
   "result.showDetails":          { es: "Mostrar detalles técnicos",                    en: "Show technical details" },
   "result.hideDetails":          { es: "Ocultar detalles técnicos",                    en: "Hide technical details" },
 
   // Session chip CTAs (calmed states)
-  "session.signIn":              { es: "Inicia sesión en Blackboard",                  en: "Sign in to Blackboard" },
+  "session.signIn":              { es: "Verificar e iniciar sesión",                  en: "Verify and sign in" },
   "session.notVerified":         { es: "Sin verificar",                                en: "Not verified" },
   "session.error":               { es: "No se pudo verificar la sesión",               en: "Couldn't verify the session" },
-  "session.remoteVerify":        { es: "Verificar en Blackboard",                      en: "Verify on Blackboard" },
-  "session.remoteVerify.detail": { es: "Comprueba el servidor. Puede afectar al límite de sesiones concurrentes.",
-                                    en: "Checks the server. It may affect the concurrent-session limit." },
+  "session.remoteVerify":        { es: "Verificar e iniciar sesión",                  en: "Verify and sign in" },
+  "session.remoteVerify.detail": { es: "Abre Blackboard para comprobar la sesión y pedir credenciales si son necesarias. Puede afectar al límite de sesiones concurrentes.",
+                                    en: "Opens Blackboard to verify the session and request credentials if needed. It may affect the concurrent-session limit." },
   "session.remoteVerify.confirm": { es: "Esta comprobación abrirá Blackboard y puede cerrar otra sesión si tu institución limita los dispositivos. ¿Continuar?",
                                      en: "This check opens Blackboard and may end another session if your institution limits devices. Continue?" },
 
   // Login flow toast
   "login.waiting.title":         { es: "Esperando inicio de sesión…",                  en: "Waiting for sign-in…" },
-  "login.waiting.body":          { es: "Se ha abierto una ventana de navegador. Inicia sesión en Blackboard y ciérrala cuando termines.",
-                                   en: "A browser window opened. Sign in to Blackboard and close it when you're done." },
+  "login.waiting.body":          { es: "Se ha abierto una ventana de navegador. Inicia sesión a tu ritmo; la aplicación detectará Blackboard, cerrará la ventana y confirmará la sesión.",
+                                   en: "A browser window opened. Sign in at your pace; the app will detect Blackboard, close the window, and confirm the session." },
   "login.cancel":                { es: "Cancelar",                                     en: "Cancel" },
   "login.failure.title":         { es: "No se pudo completar el inicio de sesión",       en: "Sign-in could not be completed" },
 

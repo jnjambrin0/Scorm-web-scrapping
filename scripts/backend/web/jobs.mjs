@@ -126,7 +126,11 @@ export function runningJobs() {
 }
 
 export function browserJobRunning(jobList = runningJobs()) {
-  return jobList.some(
+  return Boolean(activeBrowserJob(jobList));
+}
+
+export function activeBrowserJob(jobList = runningJobs()) {
+  return jobList.find(
     (job) => job.status === "running" && BROWSER_COMMANDS.has(job.command),
   );
 }
@@ -159,6 +163,7 @@ export function normalizeFlags(value) {
     refresh: Boolean(input.refresh),
     deleteAfter: Boolean(input.deleteAfter),
     remote: Boolean(input.remote),
+    interactive: Boolean(input.interactive),
   };
 }
 
@@ -168,6 +173,7 @@ function commandArgs(command, flags) {
       "scripts/blackboard-browser.mjs",
       "check-session",
       ...(flags.remote ? ["--remote"] : []),
+      ...(flags.remote && flags.interactive ? ["--interactive"] : []),
     ];
   }
   if (command === "login") {
@@ -208,6 +214,7 @@ export function serializeJob(job) {
     summary: job.summary,
     finalUrl: job.finalUrl,
     error: job.error,
+    interactive: Boolean(job.interactive),
   };
 }
 
@@ -421,6 +428,7 @@ export function createJob({ command, envOverrides, flags }) {
     stdout: "",
     stderr: "",
     cancelRequested: false,
+    interactive: Boolean(flags.interactive),
   };
   jobs.set(id, job);
 
@@ -455,7 +463,10 @@ export function createJob({ command, envOverrides, flags }) {
     emitLine(job, "stderr", line);
   });
 
-  child.on("exit", (code, signal) => {
+  let finalized = false;
+  const finalize = (code, signal, spawnError = null) => {
+    if (finalized) return;
+    finalized = true;
     job.exitCode = code;
     job.signal = signal;
     job.finishedAt = new Date().toISOString();
@@ -474,6 +485,10 @@ export function createJob({ command, envOverrides, flags }) {
     if (job.cancelRequested) {
       job.status = "cancelled";
       job.error = "Job cancelled.";
+    } else if (spawnError) {
+      job.status = "failed";
+      job.error = sanitizeText(spawnError.message || "Could not start job.");
+      addEvent(job, "error", { message: job.error });
     } else if (code === 0) {
       job.status = "success";
     } else {
@@ -487,20 +502,15 @@ export function createJob({ command, envOverrides, flags }) {
     }
 
     addEvent(job, "done", { job: serializeJob(job) });
-  });
+  };
 
-  child.on("error", (error) => {
-    job.status = "failed";
-    job.error = sanitizeText(error.message);
-    job.finishedAt = new Date().toISOString();
-    addEvent(job, "error", { message: job.error });
-    addEvent(job, "done", { job: serializeJob(job) });
-  });
+  child.on("close", (code, signal) => finalize(code, signal));
+  child.on("error", (error) => finalize(null, null, error));
 
   return job;
 }
 
-export function cancelJob(job) {
+export function cancelJob(job, { graceMs = 3000 } = {}) {
   if (!job || job.status !== "running" || !job.child) {
     return false;
   }
@@ -509,10 +519,11 @@ export function cancelJob(job) {
   emitLine(job, "system", "Cancellation requested.");
   job.child.kill("SIGINT");
   setTimeout(() => {
-    if (job.status === "running" && !job.child.killed) {
+    if (job.status === "running") {
+      emitLine(job, "system", "Graceful cancellation is taking longer than expected; sending SIGTERM.");
       job.child.kill("SIGTERM");
     }
-  }, 3000).unref();
+  }, graceMs).unref();
   return true;
 }
 
@@ -523,7 +534,10 @@ export function streamJobEvents(job, request, response) {
     connection: "keep-alive",
   });
   response.write(": connected\n\n");
+  const lastEventId = Number(request.headers["last-event-id"] || 0);
+  const shouldReplayAll = !Number.isFinite(lastEventId) || lastEventId <= 0;
   for (const event of job.events) {
+    if (!shouldReplayAll && Number(event.id) <= lastEventId) continue;
     sendSse(response, event);
   }
   job.clients.add(response);

@@ -5,7 +5,6 @@ import { useJob } from "./hooks/useJob";
 import { useFormState } from "./hooks/useFormState";
 import { useDefaultsBootstrap } from "./hooks/useDefaultsBootstrap";
 import { useSessionCheck } from "./hooks/useSessionCheck";
-import { useLogin } from "./hooks/useLogin";
 import { useSettings } from "./hooks/useSettings";
 import { classifyJobError } from "./lib/errors";
 import { TopBar } from "./components/TopBar";
@@ -29,15 +28,6 @@ export default function App() {
   const form = useFormState(settings.formDefaults);
   const bootstrap = useDefaultsBootstrap();
   const session = useSessionCheck();
-  const login = useLogin({
-    onCompleted: (finishedJob) => {
-      if (finishedJob.status === "success" && finishedJob.summary?.reachedBlackboard) {
-        session.markVerified();
-      } else {
-        session.run("local");
-      }
-    },
-  });
 
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [sessionGuardVisible, setSessionGuardVisible] = useState(false);
@@ -56,12 +46,20 @@ export default function App() {
     if (autoCheckFiredRef.current) return;
     if (bootstrap.status !== "ready") return;
     if (!job.bootstrapped) return;
+    if (!session.bootstrapped) return;
     if (job.status === "running") return;
     if (session.status !== "idle") return;
     if (isMissingBlackboardBase) return;
     autoCheckFiredRef.current = true;
     session.run();
-  }, [bootstrap.status, job.bootstrapped, job.status, session, isMissingBlackboardBase]);
+  }, [
+    bootstrap.status,
+    job.bootstrapped,
+    job.status,
+    session,
+    session.bootstrapped,
+    isMissingBlackboardBase,
+  ]);
 
   // Settings is the single source of truth for form defaults. Whenever the
   // user edits a default in the Settings modal, propagate it into the live
@@ -129,21 +127,18 @@ export default function App() {
   }
 
   const isJobRunning = job.status === "running";
-  const isAnythingBusy = isJobRunning || session.busy || login.busy;
+  const isAnythingBusy = isJobRunning || session.busy;
   const showJobPanel =
     job.command !== null &&
     !SESSION_COMMANDS.has(job.command) &&
     job.status !== "idle";
 
-  const sessionErrorToastVisible = session.status === "error" && !!session.classifiedError;
-  const loginClassifiedError = login.error
-    ? classifyJobError(login.error, "login", [])
-    : null;
+  const sessionErrorToastVisible = !session.busy && !!session.classifiedError;
 
   function requestRemoteSessionCheck() {
     if (!window.confirm(t("session.remoteVerify.confirm"))) return;
     setSessionGuardVisible(false);
-    session.run("remote");
+    session.run("remote", true);
   }
 
   return (
@@ -151,10 +146,10 @@ export default function App() {
       <TopBar
         sessionStatus={session.status}
         sessionCheckedAt={session.checkedAt}
-        onCheckSession={() => session.run()}
-        onSignIn={() => login.start()}
+        onCheckSession={requestRemoteSessionCheck}
+        onSignIn={requestRemoteSessionCheck}
         onOpenSettings={() => setSettingsOpen(true)}
-        sessionDisabled={isJobRunning || login.busy}
+        sessionDisabled={isJobRunning || session.busy}
       />
 
       <div className="mx-auto flex max-w-[960px] flex-col gap-5">
@@ -237,21 +232,12 @@ export default function App() {
         config={config}
       />
 
-      {login.busy ? (
+      {session.busy && session.interactive ? (
         <Toast
           tone="loading"
           title={t("login.waiting.title")}
           description={t("login.waiting.body")}
-          action={{ label: t("login.cancel"), onClick: () => login.cancel() }}
-          autoDismissMs={0}
-        />
-      ) : login.error && loginClassifiedError ? (
-        <Toast
-          tone="warning"
-          title={t(loginClassifiedError.titleKey)}
-          description={t(loginClassifiedError.hintKey)}
-          technicalDetails={loginClassifiedError.technicalDetails ?? undefined}
-          onClose={() => login.dismissError()}
+          action={{ label: t("login.cancel"), onClick: () => session.cancel() }}
           autoDismissMs={0}
         />
       ) : sessionGuardVisible ? (

@@ -15,9 +15,9 @@ export type { SessionCheckStatus };
 interface Props {
   status: SessionCheckStatus;
   checkedAt: Date | null;
-  /** Called when the user wants to re-run the check (idle/verified/error states). */
+  /** Called when the user wants an explicit remote verification. */
   onCheck: () => void;
-  /** Called when the user clicks the chip in unauth state to launch the login flow. */
+  /** Called when the user clicks the chip in unauth state to verify and sign in. */
   onSignIn: () => void;
   /** External disable signal (e.g. another job running). Does not override built-in checking disabled. */
   disabled?: boolean;

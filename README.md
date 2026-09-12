@@ -247,15 +247,20 @@ reinicia el comando.
 En la barra superior verás un chip de sesión. Posibles estados:
 
 - 🟢 **Sesión verificada** — todo correcto, sigue al paso 3.
-- 🟡 **Inicia sesión en Blackboard** — pulsa el chip. Se abre una ventana de
-  Chromium con la pantalla de login de tu universidad. Mete tus credenciales,
-  completa MFA si lo tienes, y **cuando aterrices correctamente en Blackboard,
-  cierra esa ventana**. La app re-verificará la sesión sola.
+- 🟡 **Verificar e iniciar sesión** — pulsa el chip. Se abre una ventana de
+  Chromium con Blackboard o el SSO de tu universidad. Introduce credenciales y
+  completa MFA a tu ritmo. Cuando aterrice correctamente en Blackboard, la app
+  detectará la sesión, cerrará su ventana y mostrará el estado verde.
 - 🟠 **Perfil guardado · sin confirmar** — hay datos locales, pero todavía no
-  se ha comprobado el servidor. Usa **Verificar en Blackboard** antes de
+  se ha comprobado el servidor. Usa **Verificar e iniciar sesión** antes de
   publicar.
-- ⚪ **Sin verificar** — inicia sesión o usa **Verificar en Blackboard** para
+- ⚪ **Sin verificar** — usa **Verificar e iniciar sesión** para
   confirmar el servidor.
+
+La acción interactiva se puede recuperar tras recargar la página: la ventana y
+el aviso de espera reaparecen junto con **Cancelar**. No abras un segundo login
+ni borres archivos `SingletonLock`; la app distingue una tarea recuperable de
+otra ventana externa que realmente mantenga ocupado el perfil.
 
 La sesión se guarda en un perfil local de Chromium. No vuelves a tener que
 loguear hasta que tu universidad invalide la sesión (suele durar varios días).
@@ -339,11 +344,11 @@ Los cambios se guardan automáticamente (no hay botón "Guardar").
 | Síntoma | Qué hacer |
 |---|---|
 | Banner amarillo **"Configuración incompleta"** | Falta una variable en `.env`. Revisa la sección [Configuración](#configuración-el-env) y reinicia `npm run dev`. |
-| Chip dice **"Inicia sesión en Blackboard"** ámbar | Tu sesión está caducada (o nunca has hecho login). Pulsa el chip y completa el login. |
-| Chip dice **"Perfil guardado · sin confirmar"** | Pulsa **Verificar en Blackboard**. Esta acción navega al servidor y puede contar para el límite de sesiones concurrentes. |
-| Error **"El perfil de Blackboard está en uso"** | Cierra cualquier otra ventana o proceso de login/scraping y vuelve a intentarlo. Solo puede haber una instancia usando el perfil. |
+| Chip dice **"Verificar e iniciar sesión"** ámbar | Tu sesión está caducada (o nunca has hecho login). Pulsa el chip y completa el login; la ventana se cerrará sola al confirmar Blackboard. |
+| Chip dice **"Perfil guardado · sin confirmar"** | Pulsa **Verificar e iniciar sesión**. Esta acción navega al servidor y puede contar para el límite de sesiones concurrentes. |
+| Error **"El perfil de Blackboard está en uso"** | Si la app ofrece recuperar o cancelar una tarea, úsala. Solo si indica navegador externo, cierra esa ventana. No borres `SingletonLock` manualmente. |
 | Error **"No se ha encontrado el SCORM en el curso"** | La URL terminó en otra página o Blackboard cambió el enlace. Copia de nuevo la URL del SCORM desde Blackboard. |
-| Error **"El inicio de sesión no ha terminado"** | La ventana se cerró antes de llegar a Blackboard. No hay límite de tiempo para introducir la contraseña; vuelve a iniciar sesión y espera a que cargue. |
+| Error **"El inicio de sesión no ha terminado"** | La ventana se cerró antes de que Blackboard confirmase la sesión. No hay límite de tiempo para introducir la contraseña; vuelve a verificar e inicia sesión hasta llegar a Blackboard. |
 | Error **"La caché de SCORM no es válida"** | La aplicación reconstruirá la caché y conservará la última exportación válida si la nueva navegación falla. |
 | Toast **"Blackboard no responde"** | Internet lento o la URL del curso no carga en 30 s. Reintenta cuando tengas mejor conexión. |
 | Toast **"URL no accesible"** | El dominio que pusiste en `BLACKBOARD_BASE_URL` no resuelve. Probable typo en el subdominio. |
@@ -378,10 +383,11 @@ Información para quien quiera entender o modificar el código.
 | `npm run web` | Solo la API; sirve `dist/` si has hecho build. |
 | `npm test` | Ejecuta la suite de regresión local con Node. |
 | `npm run build` | Comprueba tipos y construye el frontend. |
-| `npm run login` | Abre Blackboard headed para iniciar sesión manualmente (equivalente al chip de la barra superior). |
+| `npm run login` | Abre Blackboard headed para iniciar sesión manualmente y termina al confirmar Blackboard. |
 | `npm run reset-session -- --confirm` | Mueve el perfil local a un backup fechado y deja preparado un perfil limpio. No cierra sesiones remotas. |
 | `npm run check-session` | Inspecciona el perfil local sin abrir ventana visible; no confirma el servidor. |
 | `npm run check-session -- --remote` | Navega a Blackboard para comprobar el servidor. Puede afectar al límite de sesiones concurrentes. |
+| `npm run check-session -- --remote --interactive` | Abre Blackboard, permite completar SSO manualmente y confirma/cierra al llegar a Blackboard. |
 | `npm run open` | Reabre Blackboard con el perfil guardado (depuración). |
 | `npm run open-scorm` | Abre la unidad SCORM configurada y guarda artefactos en `artifacts/`. |
 | `npm run export-scorm-md` | Solo Markdown, sin tocar Notion. |

@@ -59,6 +59,18 @@ export async function assertNoExternalBrowserProcess(profileDir) {
   }
 }
 
+export async function inspectBrowserProfileUsage(profileDir = browserProfileDir()) {
+  try {
+    await assertNoExternalBrowserProcess(profileDir);
+    return { state: "available" };
+  } catch (error) {
+    if (error instanceof BrowserProfileBusyError) {
+      return { state: "external-browser" };
+    }
+    throw error;
+  }
+}
+
 function profileLockPath(profileDir) {
   return `${path.resolve(profileDir)}.lock`;
 }
@@ -127,6 +139,31 @@ export async function acquireBrowserProfileLock(profileDir) {
   throw new BrowserProfileBusyError(resolvedProfileDir);
 }
 
+export function managePersistentContextClose(context, releaseProfileLock) {
+  const originalClose = context.close.bind(context);
+  const browser = context.browser();
+  let closePromise = null;
+  context.close = async (...args) => {
+    if (closePromise) return closePromise;
+
+    closePromise = (async () => {
+      try {
+        await originalClose(...args);
+      } finally {
+        try {
+          if (browser?.isConnected()) {
+            await browser.close();
+          }
+        } finally {
+          await releaseProfileLock();
+        }
+      }
+    })();
+    return closePromise;
+  };
+  return context;
+}
+
 export async function launchPersistentContext(options = {}) {
   const {
     headless = false,
@@ -168,17 +205,5 @@ export async function launchPersistentContext(options = {}) {
     throw error;
   }
 
-  const originalClose = context.close.bind(context);
-  context.close = async (...args) => {
-    try {
-      return await originalClose(...args);
-    } finally {
-      await releaseProfileLock();
-    }
-  };
-  context.on("close", () => {
-    void releaseProfileLock();
-  });
-
-  return context;
+  return managePersistentContextClose(context, releaseProfileLock);
 }

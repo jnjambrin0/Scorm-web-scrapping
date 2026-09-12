@@ -1,9 +1,11 @@
 import type {
+  ActiveJobsResponse,
   Defaults,
   Job,
   JobRequest,
   LogEntry,
   PhaseEvent,
+  ProfileBusyPayload,
   SummaryEvent,
 } from "./types";
 
@@ -11,10 +13,12 @@ const BASE = "/api";
 
 export class ApiError extends Error {
   status: number;
-  constructor(message: string, status: number) {
+  busy: ProfileBusyPayload | null;
+  constructor(message: string, status: number, busy: ProfileBusyPayload | null = null) {
     super(message);
     this.name = "ApiError";
     this.status = status;
+    this.busy = busy;
   }
 }
 
@@ -23,10 +27,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (!response.ok) {
     const payload = (await response
       .json()
-      .catch(() => null)) as { error?: string } | null;
+      .catch(() => null)) as { error?: string; busy?: ProfileBusyPayload } | null;
     throw new ApiError(
       payload?.error || `La petición ha fallado (${response.status}).`,
       response.status,
+      payload?.busy || null,
     );
   }
   return (await response.json()) as T;
@@ -41,6 +46,7 @@ export const api = {
       body: JSON.stringify(req),
     }),
   getJob: (id: string) => request<Job>(`/jobs/${id}`),
+  activeJobs: () => request<ActiveJobsResponse>("/jobs/active"),
   cancelJob: (id: string) =>
     request<{ cancelled: boolean; job: Job }>(`/jobs/${id}/cancel`, {
       method: "POST",
@@ -53,6 +59,7 @@ export interface SseHandlers {
   onSummary?: (event: SummaryEvent) => void;
   onError?: (message: string) => void;
   onDone?: (job: Job) => void;
+  onReconnecting?: () => void;
   onConnectionLost?: () => void;
 }
 
@@ -62,6 +69,7 @@ function parseEventData<T>(event: Event): T {
 
 export function subscribeToJob(jobId: string, handlers: SseHandlers): () => void {
   const source = new EventSource(`${BASE}/jobs/${jobId}/events`);
+  let finished = false;
 
   source.addEventListener("phase", (event) => {
     handlers.onPhase?.(parseEventData<PhaseEvent>(event));
@@ -87,16 +95,19 @@ export function subscribeToJob(jobId: string, handlers: SseHandlers): () => void
   });
 
   source.addEventListener("done", (event) => {
+    if (finished) return;
+    finished = true;
     const payload = parseEventData<{ job: Job }>(event);
     handlers.onDone?.(payload.job);
     source.close();
   });
 
   source.onerror = () => {
+    if (finished) return;
     if (source.readyState === EventSource.CLOSED) {
       return;
     }
-    handlers.onConnectionLost?.();
+    handlers.onReconnecting?.();
   };
 
   return () => source.close();

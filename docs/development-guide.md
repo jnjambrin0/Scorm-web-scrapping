@@ -87,15 +87,25 @@ npm run login
 npm run open
 npm run check-session
 npm run check-session -- --remote
+npm run check-session -- --remote --interactive
 npm run reset-session -- --confirm
 ```
 
 `npm run check-session` es una inspeccion local segura: informa si el perfil
 contiene datos, pero no confirma al servidor. `--remote` navega a Blackboard y
 es una accion explicita porque una institucion puede limitar sesiones
-concurrentes. Si la sesion caduca, se vuelve a ejecutar `npm run login`, el
-usuario inicia sesion manualmente y el perfil queda actualizado. No se debe
-copiar la sesion del Chrome personal del usuario ni pedir contrasenas.
+concurrentes. `--remote --interactive` abre una ventana y espera sin límite de
+tiempo a que el usuario complete el SSO; al detectar una página Blackboard
+autenticada, cierra el contexto y libera el perfil. Si la sesión caduca, se
+puede usar ese comando o `npm run login`. No se debe copiar la sesión del Chrome
+personal del usuario ni pedir contraseñas.
+
+Una acción interactiva iniciada desde la web se conserva en `sessionStorage` y
+se recupera tras recargar la página. La API también expone el job activo de
+forma saneada para poder reconectarse o cancelarlo. Nunca se deben borrar a
+mano `SingletonLock` u otros ficheros del perfil: si la aplicación no puede
+recuperar un job, hay que cerrar el navegador externo y usar
+`npm run reset-session -- --confirm` solo como respaldo reversible.
 
 `reset-session --confirm` mueve el perfil a un backup fechado en vez de
 borrarlo. Deben estar cerradas todas las ventanas y procesos que usen el
@@ -498,7 +508,10 @@ nuevo perfil funciona.
 
 Playwright no admite dos instancias con el mismo perfil persistente. Cerrar
 otra ejecucion de `login`, `check-session`, `open-scorm` o exportacion antes de
-reintentar. El bloqueo local evita que dos jobs de la app se pisen.
+reintentar. Si la UI detecta un job propio, hay que recuperarlo o cancelarlo;
+solo un aviso de navegador externo requiere cerrar otra ventana. El bloqueo
+local evita que dos jobs de la app se pisen y se libera después de cerrar el
+navegador persistente, no simplemente al cerrar la pestaña.
 
 ### La caché de SCORM falla
 

@@ -1,9 +1,10 @@
 import http from "node:http";
 
+import { inspectBrowserProfileUsage } from "../browser/context.mjs";
 import { DEFAULT_NOTION_PARENT_PAGE_TITLE } from "../shared/env.mjs";
 import {
+  activeBrowserJob,
   cancelJob,
-  browserJobRunning,
   configStatus,
   createJob,
   getJob,
@@ -50,6 +51,15 @@ async function handleApi(request, response, url) {
     return;
   }
 
+  if (url.pathname === "/api/jobs/active" && request.method === "GET") {
+    const profile = await inspectBrowserProfileUsage();
+    writeJson(response, 200, {
+      jobs: runningJobs().map(serializeJob),
+      profile,
+    });
+    return;
+  }
+
   if (url.pathname === "/api/jobs" && request.method === "POST") {
     const body = await readRequestBody(request);
     const command = body.command;
@@ -64,12 +74,30 @@ async function handleApi(request, response, url) {
       return;
     }
 
-    if (browserJobRunning()) {
-      writeError(
+    const activeJob = activeBrowserJob();
+    if (activeJob) {
+      writeJson(
         response,
         409,
-        "Ya hay otro proceso usando el perfil de Blackboard. Cierra la otra ventana o espera a que termine y vuelve a intentarlo.",
+        {
+          error:
+            "Hay una tarea de Blackboard aún activa. Recupérala o cancélala antes de iniciar otra.",
+          busy: {
+            source: "application-job",
+            job: serializeJob(activeJob),
+          },
+        },
       );
+      return;
+    }
+
+    const profile = await inspectBrowserProfileUsage();
+    if (profile.state === "external-browser") {
+      writeJson(response, 409, {
+        error:
+          "El perfil de Blackboard está abierto en otra ventana de navegador. Ciérrala y vuelve a intentarlo.",
+        busy: { source: "external-browser" },
+      });
       return;
     }
 

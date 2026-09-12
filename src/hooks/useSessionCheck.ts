@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, subscribeToJob } from "../lib/api";
+import { ApiError, api, subscribeToJob } from "../lib/api";
 import type { Job, LogEntry } from "../lib/types";
 import { classifyJobError, type ClassifiedError } from "../lib/errors";
 
@@ -17,129 +17,276 @@ export interface UseSessionCheck {
   status: SessionCheckStatus;
   checkedAt: Date | null;
   classifiedError: ClassifiedError | null;
-  /** True while a check is in-flight (mirrors status === "checking" but easier to read). */
   busy: boolean;
-  run: (mode?: SessionCheckMode) => Promise<void>;
+  interactive: boolean;
+  bootstrapped: boolean;
+  run: (mode?: SessionCheckMode, interactive?: boolean) => Promise<void>;
+  cancel: () => Promise<void>;
   markVerified: () => void;
   markUnauthenticated: (error?: ClassifiedError) => void;
   dismissError: () => void;
 }
 
+const STORAGE_KEY = "scorm-notion:active-session-job";
+const RECONNECT_PROBE_MS = 5000;
+
+interface PersistedSessionJob {
+  id: string;
+}
+
+function readPersistedJob(): PersistedSessionJob | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const value = window.sessionStorage.getItem(STORAGE_KEY);
+    if (!value) return null;
+    const parsed = JSON.parse(value) as PersistedSessionJob;
+    return parsed.id ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function writePersistedJob(job: Job) {
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ id: job.id }));
+  } catch {
+    // Recovery is optional when sessionStorage is unavailable.
+  }
+}
+
+function clearPersistedJob() {
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.removeItem(STORAGE_KEY);
+  } catch {
+    // Recovery is optional when sessionStorage is unavailable.
+  }
+}
+
+function isSessionJob(job: Job): boolean {
+  return job.command === "check-session" || job.command === "login";
+}
+
 /**
- * Runs Blackboard `check-session` independently of the main job pipeline.
- *
- * Does **not** touch sessionStorage and **does not** dispatch through `useJob`'s
- * reducer — the goal is to keep the session probe out of the JobPanel/ResultCard
- * surface entirely. The hook owns its own EventSource for the lifetime of one check.
+ * Owns every session-related child process, including recovery after a page
+ * reload. Unlike export jobs, an interactive login has no user-entry timeout.
  */
 export function useSessionCheck(): UseSessionCheck {
   const [status, setStatus] = useState<SessionCheckStatus>("idle");
   const [checkedAt, setCheckedAt] = useState<Date | null>(null);
   const [classifiedError, setClassifiedError] = useState<ClassifiedError | null>(null);
+  const [interactive, setInteractive] = useState(false);
+  const [bootstrapped, setBootstrapped] = useState(false);
   const closeRef = useRef<(() => void) | null>(null);
+  const jobIdRef = useRef<string | null>(null);
   const logsRef = useRef<LogEntry[]>([]);
   const inFlightRef = useRef(false);
+  const reconnectTimerRef = useRef<number | null>(null);
+
+  const clearReconnectTimer = useCallback(() => {
+    if (reconnectTimerRef.current !== null) {
+      window.clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }
+  }, []);
+
+  const finish = useCallback(
+    (job: Job) => {
+      clearReconnectTimer();
+      inFlightRef.current = false;
+      jobIdRef.current = null;
+      setInteractive(false);
+      clearPersistedJob();
+
+      const session = job.summary?.session;
+      setCheckedAt(new Date());
+      if (session) {
+        if (session.verified) {
+          setStatus("verified");
+          setClassifiedError(null);
+          return;
+        }
+        if (session.mode === "local" && session.profileEvidence === "present") {
+          setStatus("stored");
+          setClassifiedError(null);
+          return;
+        }
+
+        const classified =
+          job.status === "failed"
+            ? classifyJobError(job.error, "check-session", logsRef.current)
+            : null;
+        setStatus("unauth");
+        setClassifiedError(classified);
+        return;
+      }
+
+      if (job.summary?.reachedBlackboard && job.status === "success") {
+        setStatus("verified");
+        setClassifiedError(null);
+        return;
+      }
+      if (job.status === "cancelled") {
+        setStatus("idle");
+        setClassifiedError(null);
+        return;
+      }
+
+      const classified = classifyJobError(job.error, "check-session", logsRef.current);
+      setStatus(classified.isAuthIssue ? "unauth" : "error");
+      setClassifiedError(classified);
+    },
+    [clearReconnectTimer],
+  );
+
+  const scheduleReconnectProbe = useCallback(() => {
+    const id = jobIdRef.current;
+    if (!id || reconnectTimerRef.current !== null) return;
+    reconnectTimerRef.current = window.setTimeout(() => {
+      reconnectTimerRef.current = null;
+      void api
+        .getJob(id)
+        .then((job) => {
+          if (job.status !== "running") finish(job);
+        })
+        .catch(() => {
+          // EventSource keeps reconnecting; preserve the active state until the
+          // backend can authoritatively report that the job is gone.
+        });
+    }, RECONNECT_PROBE_MS);
+  }, [finish]);
+
+  const attach = useCallback(
+    (job: Job) => {
+      closeRef.current?.();
+      jobIdRef.current = job.id;
+      closeRef.current = subscribeToJob(job.id, {
+        onLog: (entry) => {
+          logsRef.current = [...logsRef.current, entry].slice(-50);
+        },
+        onDone: finish,
+        onReconnecting: scheduleReconnectProbe,
+        onConnectionLost: scheduleReconnectProbe,
+      });
+    },
+    [finish, scheduleReconnectProbe],
+  );
+
+  const recover = useCallback(
+    (job: Job): boolean => {
+      if (!isSessionJob(job)) return false;
+      if (job.status !== "running") {
+        finish(job);
+        return true;
+      }
+      inFlightRef.current = true;
+      setStatus("checking");
+      setInteractive(job.interactive || job.command === "login");
+      setClassifiedError(null);
+      writePersistedJob(job);
+      attach(job);
+      return true;
+    },
+    [attach, finish],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    const restore = async () => {
+      try {
+        const persisted = readPersistedJob();
+        if (persisted) {
+          const job = await api.getJob(persisted.id);
+          if (!cancelled && recover(job)) return;
+        }
+
+        const active = await api.activeJobs();
+        const job = active.jobs.find(isSessionJob);
+        if (!cancelled && job) recover(job);
+        if (!cancelled && !job && active.profile.state === "external-browser") {
+          setCheckedAt(new Date());
+          setStatus("error");
+          setClassifiedError(
+            classifyJobError(
+              "El perfil de Blackboard está abierto en otra ventana de navegador.",
+              "check-session",
+              [],
+            ),
+          );
+        }
+      } catch {
+        clearPersistedJob();
+      } finally {
+        if (!cancelled) setBootstrapped(true);
+      }
+    };
+    void restore();
+    return () => {
+      cancelled = true;
+    };
+  }, [recover]);
 
   useEffect(() => {
     return () => {
+      clearReconnectTimer();
       closeRef.current?.();
       closeRef.current = null;
     };
-  }, []);
+  }, [clearReconnectTimer]);
 
-  const finish = useCallback((job: Job) => {
-    const logs = logsRef.current;
-    const session = job.summary?.session;
-    if (session) {
-      setCheckedAt(new Date());
+  const run = useCallback(
+    async (mode: SessionCheckMode = "local", interactive = false) => {
+      if (inFlightRef.current) return;
+      inFlightRef.current = true;
+      setStatus("checking");
+      setInteractive(mode === "remote" && interactive);
       setClassifiedError(null);
-      if (session.verified) {
-        setStatus("verified");
-      } else if (session.mode === "local" && session.profileEvidence === "present") {
-        setStatus("stored");
-      } else {
-        setStatus("unauth");
-      }
-      return;
-    }
+      logsRef.current = [];
+      clearReconnectTimer();
+      closeRef.current?.();
+      closeRef.current = null;
 
-    if (job.status === "success") {
-      // Older backends did not emit a session summary. Keep this conservative:
-      // a successful local probe is not proof that Blackboard accepted the session.
-      setStatus("stored");
-      setCheckedAt(new Date());
-      setClassifiedError(null);
-      return;
-    }
-    if (job.status === "cancelled") {
-      setStatus("idle");
-      setClassifiedError(null);
-      return;
-    }
-    const classified = classifyJobError(job.error, "check-session", logs);
-    setCheckedAt(new Date());
-    setClassifiedError(classified);
-    setStatus(classified.isAuthIssue ? "unauth" : "error");
-  }, []);
-
-  const run = useCallback(async (mode: SessionCheckMode = "local") => {
-    if (inFlightRef.current) return;
-    inFlightRef.current = true;
-    setStatus("checking");
-    setClassifiedError(null);
-    logsRef.current = [];
-    closeRef.current?.();
-    closeRef.current = null;
-
-    let job: Job;
-    try {
-      job = await api.startJob({
-        command: "check-session",
-        flags: { remote: mode === "remote" },
-      });
-    } catch (err) {
-      inFlightRef.current = false;
-      const message = err instanceof Error ? err.message : "Unknown error";
-      setStatus("error");
-      setCheckedAt(new Date());
-      setClassifiedError(classifyJobError(message, "check-session", []));
-      return;
-    }
-
-    closeRef.current = subscribeToJob(job.id, {
-      onLog: (entry) => {
-        logsRef.current = [...logsRef.current, entry].slice(-50);
-      },
-      onError: (message) => {
-        // SSE error event — usually transient. Defer to onDone to set the final state.
-        logsRef.current = [
-          ...logsRef.current,
-          {
-            id: `${Date.now()}-sse-error`,
-            at: new Date().toISOString(),
-            stream: "system",
-            line: message,
+      try {
+        const job = await api.startJob({
+          command: "check-session",
+          flags: {
+            remote: mode === "remote",
+            interactive: mode === "remote" && interactive,
           },
-        ].slice(-50);
-      },
-      onDone: (finishedJob) => {
+        });
+        writePersistedJob(job);
+        attach(job);
+      } catch (error) {
+        if (
+          error instanceof ApiError &&
+          error.busy?.source === "application-job" &&
+          error.busy.job &&
+          recover(error.busy.job)
+        ) {
+          return;
+        }
         inFlightRef.current = false;
-        finish(finishedJob);
-      },
-      onConnectionLost: () => {
-        inFlightRef.current = false;
-        setStatus("error");
+        setInteractive(false);
         setCheckedAt(new Date());
-        setClassifiedError(
-          classifyJobError(
-            "Connection to local backend lost",
-            "check-session",
-            logsRef.current,
-          ),
-        );
-      },
-    });
-  }, [finish]);
+        const message = error instanceof Error ? error.message : "Unknown error";
+        setStatus("error");
+        setClassifiedError(classifyJobError(message, "check-session", []));
+      }
+    },
+    [attach, clearReconnectTimer, recover],
+  );
+
+  const cancel = useCallback(async () => {
+    const id = jobIdRef.current;
+    if (!id) return;
+    try {
+      await api.cancelJob(id);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "No se pudo cancelar el inicio de sesión.";
+      setClassifiedError(classifyJobError(message, "check-session", logsRef.current));
+    }
+  }, []);
 
   const dismissError = useCallback(() => {
     setClassifiedError(null);
@@ -147,14 +294,15 @@ export function useSessionCheck(): UseSessionCheck {
   }, [status]);
 
   const markVerified = useCallback(() => {
+    clearReconnectTimer();
     inFlightRef.current = false;
+    setInteractive(false);
     setStatus("verified");
     setCheckedAt(new Date());
     setClassifiedError(null);
-  }, []);
+  }, [clearReconnectTimer]);
 
   const markUnauthenticated = useCallback((error?: ClassifiedError) => {
-    inFlightRef.current = false;
     setStatus("unauth");
     setCheckedAt(new Date());
     setClassifiedError(error ?? null);
@@ -165,7 +313,10 @@ export function useSessionCheck(): UseSessionCheck {
     checkedAt,
     classifiedError,
     busy: status === "checking",
+    interactive,
+    bootstrapped,
     run,
+    cancel,
     markVerified,
     markUnauthenticated,
     dismissError,
