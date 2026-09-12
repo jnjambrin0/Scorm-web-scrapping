@@ -85,6 +85,41 @@ wrappers finos. La implementacion vive en `scripts/backend/`:
 Al cambiar comportamiento, tocar primero el modulo de la responsabilidad
 afectada. Los wrappers solo deben preservar compatibilidad con los comandos npm.
 
+## Superficie de contenido y descarga de assets
+
+`waitForFrame()` exige un documento cargado bajo `scormcontent`, o un frame
+nombrado con DOM reconocible de Rise. Rechaza driver, launchFrame y reproductor
+Rustici como superficies de contenido, incluso si ya existe el iframe
+`scormdriver_content`. Ante varias superficies usables falla sin adivinar.
+
+`notion/asset-download.mjs` descarga `asset.absoluteUrl`, calculada desde el
+`baseUri` de la leccion, mediante fetch con credenciales dentro del frame.
+Nunca volver a pasar solamente `asset.source`: una URL relativa como `assets/x.jpg`
+se resolveria contra document.baseURI y podria terminar bajo `scormdriver/assets`.
+Se verifica el origen y se readquiere el frame en cada intento por si navego o
+fue sustituido. No se generan rutas ni se modifica la URL fuente del SCORM.
+
+Cada solicitud tiene limite de 120 segundos (incluye lectura del cuerpo), con
+un maximo de tres intentos para fallos transitorios. Se respeta Retry-After hasta
+30 segundos; ante esperas mayores se devuelve el rate limit sin adelantar el
+reintento. Los 404/410, 403, HTML inesperado y origen distinto no se reintentan.
+401 o redireccion observable a login detienen el lote como session-required.
+Failed to fetch sin evidencia adicional se clasifica network-or-policy, no se
+atribuye automaticamente a contrasenas, CORS o archivos inexistentes.
+
+El manifest guarda diagnostico por asset: categoria, rutas sin query/hash,
+documento/frame observado, MIME, HTTP y codigos net::ERR cuando estan disponibles.
+No se copian cuerpos HTML, cookies, cabeceras de autenticacion ni URLs firmadas
+al diagnostico. Los binarios y el manifest se promueven desde temporales; se
+guarda tras cada recurso, tambien antes de propagar cierre o sesion caducada.
+La cache existente conserva el schema: una nueva ejecucion reutiliza archivos
+descargados con tamano valido y vuelve a intentar solo los pendientes.
+
+`test/asset-download.test.mjs` reproduce la incidencia Imagen1.jpg/Imagen2.png
+con servidores locales, incluyendo driver previo, base URI diferente, 404,
+503, timeout, navegacion durante fetch y progreso persistido. No usa el perfil
+autenticado ni escribe en la cache real.
+
 ## Como usar el navegador/MCP durante el desarrollo
 
 El navegador controlado por MCP o por Playwright es una herramienta de

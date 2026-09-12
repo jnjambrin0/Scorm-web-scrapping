@@ -3,14 +3,14 @@ import fs from "node:fs/promises";
 import path from "node:path";
 
 import { openScorm } from "../scorm/navigation.mjs";
-import { downloadAssetFromPlayer } from "./asset-download.mjs";
+import { downloadAssetFromPlayer, safeAssetRoute } from "./asset-download.mjs";
 import { scormSourceIdentity } from "../scorm/urls.mjs";
 import {
   NOTION_ASSET_DIR,
   NOTION_ASSET_MANIFEST_PATH,
   ROOT,
 } from "../shared/paths.mjs";
-import { formatBytes, safeFilename, sanitizeError } from "../shared/text.mjs";
+import { formatBytes, safeFilename } from "../shared/text.mjs";
 import { logProgress } from "./progress.mjs";
 
 const NOTION_ASSET_MANIFEST_SCHEMA_VERSION = 2;
@@ -220,15 +220,6 @@ export async function writeAssetManifest(scormExport, assets, extra = {}) {
   } finally { await fs.unlink(temporary).catch(() => {}); }
 }
 
-async function fileExists(filePath) {
-  try {
-    await fs.access(filePath);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 export async function applyCachedAssetManifest(assets, scormExport) {
   let manifest;
   try {
@@ -288,6 +279,7 @@ export async function applyCachedAssetManifest(assets, scormExport) {
     asset.sha256 = cached.sha256;
     asset.localPath = localPath;
     asset.statusCode = cached.statusCode;
+    asset.finalUrl = safeAssetRoute(cached.finalUrl);
     asset.status = "downloaded";
     asset.duplicateOf = cached.duplicateOf;
     restoredAssets += 1;
@@ -341,9 +333,10 @@ export async function downloadAssets(context, scormExport, assets, {
         asset.status = "download_failed";
         asset.error = `${response.diagnostic.category}${response.status ? `; HTTP ${response.status}` : ""}; attempts ${response.diagnostic.attempts.length}`;
         logProgress(`Download failed for ${label}: ${asset.error}.`);
+        logProgress(`Asset download diagnostic: ${JSON.stringify(asset.diagnostic)}`);
         if (response.diagnostic.category === "session-required") {
           stopError = new Error(`SESSION_INVALID: Blackboard session expired while downloading ${label}.`);
-        } else if (["browser-closed", "content-not-ready"].includes(response.diagnostic.category)) {
+        } else if (["browser-closed", "content-not-ready", "content-ambiguous"].includes(response.diagnostic.category)) {
           stopError = new Error(`SCORM asset download stopped: ${response.diagnostic.category}; ${label}.`);
         }
       } else {

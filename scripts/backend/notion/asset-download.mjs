@@ -3,7 +3,7 @@ import { waitForFrame } from "../scorm/navigation.mjs";
 const RETRYABLE_HTTP = new Set([408, 425, 429, 500, 502, 503, 504]);
 const RETRYABLE_FAILURES = new Set(["timeout", "network-or-policy", "frame-navigation"]);
 
-function safeRoute(value) {
+export function safeAssetRoute(value) {
   try { const url = new URL(value); return `${url.origin}${url.pathname}`; }
   catch { return null; }
 }
@@ -74,7 +74,7 @@ async function fetchInFrame(frame, asset, timeoutMs) {
     return {
       ok: false,
       category: page.isClosed() ? "browser-closed" : /Execution context was destroyed|Frame was detached|frame has been detached|Cannot find context/i.test(error.message) ? "frame-navigation" : "browser-error",
-      transportCode, requestedUrl: safeRoute(asset.absoluteUrl), frameUrl: safeRoute(frame.url()),
+      transportCode, requestedUrl: safeAssetRoute(asset.absoluteUrl), frameUrl: safeAssetRoute(frame.url()),
     };
   } finally { page.off("requestfailed", failed); }
 }
@@ -93,14 +93,15 @@ export async function downloadAssetFromPlayer(player, asset, {
     try {
       const frame = await waitForFrame(player, { timeout: frameTimeoutMs });
       response = await fetchInFrame(frame, asset, timeoutMs);
-    } catch {
-      response = { ok: false, category: player.context().pages().some((p) => !p.isClosed()) ? "content-not-ready" : "browser-closed" };
+    } catch (error) {
+      response = { ok: false, category: !player.context().pages().some((p) => !p.isClosed()) ? "browser-closed" : /multiple usable content surfaces/.test(error.message) ? "content-ambiguous" : "content-not-ready" };
     }
     const category = response.ok ? "downloaded" : response.category || httpCategory(response.status);
     attempts.push({ number: index + 1, category, status: response.status || null, transportCode: response.transportCode || null });
     response.diagnostic = {
-      category, requestedUrl: safeRoute(asset.absoluteUrl), finalUrl: response.finalUrl || null,
+      category, requestedUrl: safeAssetRoute(asset.absoluteUrl), finalUrl: response.finalUrl || null,
       frameUrl: response.frameUrl || null, documentBase: response.documentBase || null,
+      mime: response.mime || null,
       attempts: [...attempts],
     };
     if (response.ok || index === delays.length) break;

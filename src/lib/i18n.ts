@@ -3,6 +3,8 @@ export type Lang = "es" | "en";
 export const LANGS: ReadonlyArray<Lang> = ["es", "en"] as const;
 
 export const STRINGS = {
+  "error.assets.download": { es: "No se pudieron preparar todos los recursos", en: "Some resources could not be prepared" },
+  "error.assets.download.hint": { es: "La publicación se ha detenido. Los recursos ya descargados se conservan; consulta los detalles para ver qué archivos fallaron y por qué.", en: "Publication has stopped. Downloaded resources are preserved; check the details for the affected files and causes." },
   "queue.owner": { es: "Otra instancia de la aplicación está usando esta cola. Cierra esa instancia y reinicia este servidor.", en: "Another application instance is using this queue. Close that instance and restart this server." },
   "queue.tab": { es: "Cola", en: "Queue" },
   "queue.individual": { es: "Publicación individual", en: "Single publication" },

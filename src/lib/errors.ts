@@ -49,6 +49,17 @@ const PROCESS_CRASH = /Job failed with code/;
 
 const PATTERNS: ReadonlyArray<Pattern> = [
   {
+    test: (raw) => /SESSION_INVALID/.test(raw),
+    titleKey: "error.session.expired",
+    hintKey: "error.session.expired.hint",
+    isAuthIssue: true,
+  },
+  {
+    test: (raw) => /Cannot publish: \d+ assets failed to download|SCORM asset download stopped|SCORM asset could not be saved locally/.test(raw),
+    titleKey: "error.assets.download",
+    hintKey: "error.assets.download.hint",
+  },
+  {
     test: (raw, log) => PROFILE_BUSY.test(raw) || PROFILE_BUSY.test(log),
     titleKey: "error.profile.busy",
     hintKey: "error.profile.busy.hint",

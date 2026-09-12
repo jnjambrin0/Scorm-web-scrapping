@@ -350,6 +350,21 @@ la aplicación conserva el archivo y no inicia nuevas publicaciones.
 La cola publica en Notion y nunca activa «borrar después de validar».
 Markdown y dry-run siguen en la vista individual.
 
+### Si falla una imagen o un vídeo
+
+El descargador espera al contenido SCORM y usa la URL absoluta del recurso
+calculada a partir de la lección. El frame intermedio `scormdriver` no se acepta
+como temario listo. Las descargas siguen dentro del navegador autenticado.
+
+Los errores transitorios se reintentan hasta tres veces; un 404 real no genera
+rutas alternativas. Los detalles distinguen recurso inexistente, sesión
+caducada, respuesta HTML, timeout y fallo de red o política del navegador.
+Si alguna descarga sigue fallando, no se publica una página incompleta.
+
+Los recursos completados se guardan progresivamente. Vuelve a intentar la misma
+URL sin activar «forzar actualización» para reutilizarlos y descargar solo los
+pendientes. No es necesario borrar la caché ni reiniciar la sesión por un 404.
+
 ## Ajustes opcionales
 
 Icono de engranaje en la barra superior → modal de Ajustes:

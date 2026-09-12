@@ -7,7 +7,7 @@ import path from "node:path";
 import { chromium } from "playwright";
 import { waitForFrame } from "../scripts/backend/scorm/navigation.mjs";
 import { downloadAssetFromPlayer } from "../scripts/backend/notion/asset-download.mjs";
-import { collectMediaReferences, downloadAssets } from "../scripts/backend/notion/assets.mjs";
+import { assertAssetsReadyForPublish, collectMediaReferences, downloadAssets } from "../scripts/backend/notion/assets.mjs";
 
 const filename = "INSD_BAST_U03_5.1_Imagen1.jpg";
 const jpeg = Buffer.from([255, 216, 255, 217]);
@@ -97,6 +97,7 @@ test("a stalled request times out with bounded attempts", async () => {
 
 test("recovers a frame navigation without changing the asset URL", async () => {
   let first = true;
+  let received = 0;
   await fixture(async ({ page, asset }) => {
     const frame = await waitForFrame(page, { timeout: 1500 });
     page.on("request", (request) => {
@@ -106,9 +107,48 @@ test("recovers a frame navigation without changing the asset URL", async () => {
     assert.equal(result.ok, true);
     assert.ok(result.diagnostic.attempts.length > 1);
   }, (req, res) => {
-    if (req.url.includes(filename) && first) { setTimeout(() => { if (!res.destroyed) { res.setHeader("content-type", "image/jpeg"); res.end(jpeg); } }, 100); return true; }
+    if (req.url.includes(filename) && ++received === 1) { setTimeout(() => { if (!res.destroyed) { res.setHeader("content-type", "image/jpeg"); res.end(jpeg); } }, 100); return true; }
     return false;
   });
+});
+
+test("selects real content instead of a named driver sibling", async () => {
+  await fixture(async ({ page }) => {
+    const frame = await waitForFrame(page, { timeout: 1000 });
+    assert.match(frame.url(), /scormcontent\/index.html$/);
+  }, (req, res) => {
+    if (req.url === "/player") { res.setHeader("content-type", "text/html"); res.end('<iframe name="scormdriver_content" src="/driver"></iframe><iframe src="/scormcontent/index.html"></iframe>'); return true; }
+    if (req.url === "/driver") { res.setHeader("content-type", "text/html"); res.end("<main>Loading player</main>"); return true; }
+    return false;
+  });
+});
+
+test("closing the content page stops immediately without opening another browser", async () => {
+  await fixture(async ({ page, asset, requests }) => {
+    await page.close();
+    const result = await downloadAssetFromPlayer(page, asset, options);
+    assert.equal(result.diagnostic.category, "browser-closed");
+    assert.equal(result.diagnostic.attempts.length, 1);
+    assert.equal(requests.filter((request) => request.includes(filename)).length, 0);
+  });
+});
+
+test("a long Retry-After returns a clear rate limit instead of retrying too early", async () => {
+  await fixture(async ({ page, asset }) => {
+    const result = await downloadAssetFromPlayer(page, asset, options);
+    assert.equal(result.diagnostic.category, "rate-limited");
+    assert.equal(result.diagnostic.attempts.length, 1);
+  }, (req, res) => {
+    if (req.url.includes(filename)) { res.writeHead(429, { "retry-after": "120" }); res.end(); return true; }
+    return false;
+  });
+});
+
+test("publication errors include file names and causes without query credentials", () => {
+  assert.throws(() => assertAssetsReadyForPublish([
+    { source: `assets/${filename}?token=private`, status: "download_failed", error: "http-not-found; HTTP 404; attempts 1" },
+    { source: "assets/INSD_BAST_U03_5.1_Imagen2.png", status: "download_failed", error: "network-or-policy; attempts 3" },
+  ]), (error) => /2 assets/.test(error.message) && /HTTP 404/.test(error.message) && /Imagen2/.test(error.message) && !error.message.includes("private"));
 });
 
 test("persists each asset and leaves previously downloaded resources untouched", async () => {
