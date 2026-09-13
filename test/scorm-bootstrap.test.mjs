@@ -75,7 +75,9 @@ test("bootstraps Blackboard in the initial page before resolving the exact SCORM
         bridgeSeen: false,
         playerRole: "legacy-player",
         playerUrl: `http://127.0.0.1:${port}/scormdriver/indexAPI.html`,
+        hostUrl: `http://127.0.0.1:${port}/scormdriver/indexAPI.html`,
         relation: "popup",
+        surface: "top-level",
         unrelatedPageCount: 0,
       },
     });

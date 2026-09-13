@@ -41,7 +41,8 @@ const SCORM_SOURCE_HTTP = /Direct SCORM source returned HTTP \d+/i;
 const SCORM_LINK_MISSING = /Direct SCORM source did not render a matching SCORM link/i;
 const SCORM_LINK_AMBIGUOUS = /Direct SCORM source rendered multiple matching SCORM links/i;
 const SCORM_LINK_WRONG = /Direct SCORM resolved link did not open the expected item/i;
-const SCORM_PLAYER = /SCORM attempt (?:reached Blackboard launch frame but did not open a supported player|did not create or navigate to a supported player page|opened multiple eligible player pages)|SCORM player was opened but its content surface did not become ready/i;
+const SCORM_PLAYER =
+  /SCORM attempt (?:reached Blackboard launch frame but did not (?:open|expose) a supported player(?: or content surface)?|did not create or navigate to a supported player page|(?:opened multiple eligible player pages|exposed multiple eligible player surfaces))|SCORM (?:inline )?player was opened but its content surface did not become ready/i;
 const SCORM_ITEM = /Could not find SCORM item|Could not find course link/i;
 const SCORM_URL = /SCORM URL did not resolve|Direct SCORM URL did not resolve as entered|Could not find Start\/Continue attempt control|staged cache was not promoted/i;
 const CACHE_INVALID = /Cache status: (?:manifest-missing|manifest-invalid|markdown-missing|source-mismatch|source-schema-migration)/i;

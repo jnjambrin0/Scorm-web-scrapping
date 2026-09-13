@@ -11,7 +11,7 @@ import {
 } from "../scripts/backend/scorm/navigation.mjs";
 
 const courseId = "_14390_1";
-const itemId = "_689299_1";
+const itemId = "_701824_1";
 const scormPath = `/ultra/courses/${courseId}/scorm/overview/${itemId}`;
 const launchFramePath = `/ultra/courses/${courseId}/scorm/launchFrame`;
 const modernPlayerPath =
@@ -101,7 +101,9 @@ test("follows Blackboard launchFrame into the Rustici modern player", async () =
         assert.deepEqual(metadata?.attempt, {
           playerRole: "engine-player",
           playerUrl: `http://127.0.0.1:${port}${modernPlayerPath}`,
+          hostUrl: `http://127.0.0.1:${port}${modernPlayerPath}`,
           relation: "popup",
+          surface: "top-level",
           bridgeSeen: true,
           unrelatedPageCount: 0,
         });
@@ -109,6 +111,312 @@ test("follows Blackboard launchFrame into the Rustici modern player", async () =
       } finally {
         await browser.close();
       }
+    });
+  });
+});
+
+test("follows a Rustici modern player embedded in Blackboard launchFrame", async () => {
+  await withServer((request, response) => {
+    if (request.url === "/ultra/stream") {
+      respondHtml(response, "<title>Courses</title><main>Course Content</main>");
+      return;
+    }
+    if (request.url === scormPath) {
+      respondHtml(
+        response,
+        `<button onclick="location.assign('${launchFramePath}')">Start attempt</button>`,
+      );
+      return;
+    }
+    if (request.url === launchFramePath) {
+      respondHtml(response, `<iframe src="${modernPlayerPath}"></iframe>`);
+      return;
+    }
+    if (request.url === modernPlayerPath) {
+      respondHtml(
+        response,
+        '<iframe name="scormdriver_content" src="/scormcontent/rise/inline.html"></iframe>',
+      );
+      return;
+    }
+    if (request.url === "/scormcontent/rise/inline.html") {
+      respondHtml(response, "<main>Rise lesson in an inline player</main>");
+      return;
+    }
+    response.writeHead(404);
+    response.end();
+  }, async (port) => {
+    await withBlackboardConfig(port, async () => {
+      const browser = await chromium.launch({ channel: "chrome", headless: true });
+      try {
+        const context = await browser.newContext();
+        const player = await openScorm(context);
+        const frame = await waitForFrame(player, { timeout: 2000 });
+
+        assert.equal(player.url(), `http://127.0.0.1:${port}${launchFramePath}`);
+        assert.match(frame.url(), /\/scormcontent\/rise\/inline\.html$/);
+        assert.deepEqual(scormNavigationMetadata(player)?.attempt, {
+          playerRole: "engine-player",
+          playerUrl: `http://127.0.0.1:${port}${modernPlayerPath}`,
+          hostUrl: `http://127.0.0.1:${port}${launchFramePath}`,
+          relation: "source",
+          surface: "inline-frame",
+          bridgeSeen: true,
+          unrelatedPageCount: 0,
+        });
+        await context.close();
+      } finally {
+        await browser.close();
+      }
+    });
+  });
+});
+
+test("accepts a verified SCORM content frame embedded directly in launchFrame", async () => {
+  await withServer((request, response) => {
+    if (request.url === "/ultra/stream") {
+      respondHtml(response, "<title>Courses</title><main>Course Content</main>");
+      return;
+    }
+    if (request.url === scormPath) {
+      respondHtml(
+        response,
+        `<button onclick="location.assign('${launchFramePath}')">Start attempt</button>`,
+      );
+      return;
+    }
+    if (request.url === launchFramePath) {
+      respondHtml(
+        response,
+        '<iframe name="scormdriver_content" src="/scormcontent/rise/direct-frame.html"></iframe>',
+      );
+      return;
+    }
+    if (request.url === "/scormcontent/rise/direct-frame.html") {
+      respondHtml(response, "<main>Rise lesson in a direct frame</main>");
+      return;
+    }
+    response.writeHead(404);
+    response.end();
+  }, async (port) => {
+    await withBlackboardConfig(port, async () => {
+      const browser = await chromium.launch({ channel: "chrome", headless: true });
+      try {
+        const context = await browser.newContext();
+        const player = await openScorm(context);
+        const frame = await waitForFrame(player, { timeout: 2000 });
+
+        assert.equal(player.url(), `http://127.0.0.1:${port}${launchFramePath}`);
+        assert.match(frame.url(), /\/scormcontent\/rise\/direct-frame\.html$/);
+        assert.equal(scormNavigationMetadata(player)?.attempt?.playerRole, "content-window");
+        assert.equal(scormNavigationMetadata(player)?.attempt?.surface, "inline-frame");
+        await context.close();
+      } finally {
+        await browser.close();
+      }
+    });
+  });
+});
+
+test("keeps an inline player bound to its own content subtree", async () => {
+  await withServer((request, response) => {
+    if (request.url === "/ultra/stream") {
+      respondHtml(response, "<title>Courses</title><main>Course Content</main>");
+      return;
+    }
+    if (request.url === scormPath) {
+      respondHtml(
+        response,
+        `<button onclick="location.assign('${launchFramePath}')">Start attempt</button>`,
+      );
+      return;
+    }
+    if (request.url === launchFramePath) {
+      respondHtml(
+        response,
+        `<iframe src="${modernPlayerPath}"></iframe><iframe src="/scormcontent/rise/unrelated-sibling.html"></iframe>`,
+      );
+      return;
+    }
+    if (request.url === modernPlayerPath) {
+      respondHtml(response, "<main>Player loading without content</main>");
+      return;
+    }
+    if (request.url === "/scormcontent/rise/unrelated-sibling.html") {
+      respondHtml(response, "<main>Unrelated Rise lesson</main>");
+      return;
+    }
+    response.writeHead(404);
+    response.end();
+  }, async (port) => {
+    await withBlackboardConfig(port, async () => {
+      const browser = await chromium.launch({ channel: "chrome", headless: true });
+      try {
+        const context = await browser.newContext();
+        const player = await openScorm(context);
+        await assert.rejects(
+          () => waitForFrame(player, { timeout: 250 }),
+          /SCORM inline player was opened but its content surface did not become ready/,
+        );
+        await context.close();
+      } finally {
+        await browser.close();
+      }
+    });
+  });
+});
+
+test("follows content opened from an inline player in a later window", async () => {
+  await withServer((request, response) => {
+    if (request.url === "/ultra/stream") {
+      respondHtml(response, "<title>Courses</title><main>Course Content</main>");
+      return;
+    }
+    if (request.url === scormPath) {
+      respondHtml(
+        response,
+        `<button onclick="location.assign('${launchFramePath}')">Start attempt</button>`,
+      );
+      return;
+    }
+    if (request.url === launchFramePath) {
+      respondHtml(response, `<iframe src="${modernPlayerPath}"></iframe>`);
+      return;
+    }
+    if (request.url === modernPlayerPath) {
+      respondHtml(
+        response,
+        '<script>setTimeout(() => window.open("/scormcontent/rise/inline-popup.html", "_blank"), 100)</script>',
+      );
+      return;
+    }
+    if (request.url === "/scormcontent/rise/inline-popup.html") {
+      respondHtml(response, "<main>Rise lesson in an inline-player popup</main>");
+      return;
+    }
+    response.writeHead(404);
+    response.end();
+  }, async (port) => {
+    await withBlackboardConfig(port, async () => {
+      const browser = await chromium.launch({ channel: "chrome", headless: true });
+      try {
+        const context = await browser.newContext();
+        const player = await openScorm(context);
+        const frame = await waitForFrame(player, { timeout: 2000 });
+
+        assert.equal(
+          frame.url(),
+          `http://127.0.0.1:${port}/scormcontent/rise/inline-popup.html`,
+        );
+        await context.close();
+      } finally {
+        await browser.close();
+      }
+    });
+  });
+});
+
+test("does not select a player frame that was already loaded before Start attempt", async () => {
+  await withServer((request, response) => {
+    if (request.url === "/ultra/stream") {
+      respondHtml(response, "<title>Courses</title><main>Course Content</main>");
+      return;
+    }
+    if (request.url === scormPath) {
+      respondHtml(
+        response,
+        `<iframe src="${modernPlayerPath}" onload="document.querySelector('button').hidden = false"></iframe><button hidden onclick="window.open('${modernPlayerPath}', '_blank')">Start attempt</button>`,
+      );
+      return;
+    }
+    if (request.url === modernPlayerPath) {
+      respondHtml(
+        response,
+        '<iframe name="scormdriver_content" src="/scormcontent/rise/pre-existing.html"></iframe>',
+      );
+      return;
+    }
+    if (request.url === "/scormcontent/rise/pre-existing.html") {
+      respondHtml(response, "<main>Rise lesson</main>");
+      return;
+    }
+    response.writeHead(404);
+    response.end();
+  }, async (port) => {
+    await withBlackboardConfig(port, async () => {
+      const browser = await chromium.launch({ channel: "chrome", headless: true });
+      try {
+        const context = await browser.newContext();
+        const player = await openScorm(context);
+
+        assert.equal(player.url(), `http://127.0.0.1:${port}${modernPlayerPath}`);
+        assert.equal(scormNavigationMetadata(player)?.attempt?.relation, "popup");
+        assert.equal(scormNavigationMetadata(player)?.attempt?.surface, "top-level");
+        await context.close();
+      } finally {
+        await browser.close();
+      }
+    });
+  });
+});
+
+test("ignores an other-origin player-shaped frame inside launchFrame", async () => {
+  await withServer((request, response) => {
+    if (request.url === modernPlayerPath) {
+      respondHtml(response, "<main>Untrusted player</main>");
+      return;
+    }
+    response.writeHead(404);
+    response.end();
+  }, async (untrustedPort) => {
+    await withServer((request, response) => {
+      if (request.url === "/ultra/stream") {
+        respondHtml(response, "<title>Courses</title><main>Course Content</main>");
+        return;
+      }
+      if (request.url === scormPath) {
+        respondHtml(
+          response,
+          `<button onclick="location.assign('${launchFramePath}')">Start attempt</button>`,
+        );
+        return;
+      }
+      if (request.url === launchFramePath) {
+        respondHtml(
+          response,
+          `<iframe src="http://127.0.0.1:${untrustedPort}${modernPlayerPath}"></iframe><iframe src="${modernPlayerPath}"></iframe>`,
+        );
+        return;
+      }
+      if (request.url === modernPlayerPath) {
+        respondHtml(
+          response,
+          '<iframe name="scormdriver_content" src="/scormcontent/rise/trusted-inline.html"></iframe>',
+        );
+        return;
+      }
+      if (request.url === "/scormcontent/rise/trusted-inline.html") {
+        respondHtml(response, "<main>Trusted Rise lesson</main>");
+        return;
+      }
+      response.writeHead(404);
+      response.end();
+    }, async (port) => {
+      await withBlackboardConfig(port, async () => {
+        const browser = await chromium.launch({ channel: "chrome", headless: true });
+        try {
+          const context = await browser.newContext();
+          const player = await openScorm(context);
+          const frame = await waitForFrame(player, { timeout: 2000 });
+
+          assert.equal(player.url(), `http://127.0.0.1:${port}${launchFramePath}`);
+          assert.match(frame.url(), /trusted-inline\.html$/);
+          assert.equal(scormNavigationMetadata(player)?.attempt?.playerUrl, `http://127.0.0.1:${port}${modernPlayerPath}`);
+          await context.close();
+        } finally {
+          await browser.close();
+        }
+      });
     });
   });
 });
@@ -317,7 +625,52 @@ test("fails closed when one attempt opens multiple eligible players", async () =
         const context = await browser.newContext();
         await assert.rejects(
           () => openScorm(context),
-          /SCORM attempt opened multiple eligible player pages/,
+          /SCORM attempt exposed multiple eligible player surfaces/,
+        );
+        await context.close();
+      } finally {
+        await browser.close();
+      }
+    });
+  });
+});
+
+test("fails closed when launchFrame embeds multiple eligible players", async () => {
+  const secondPlayerPath =
+    "/webapps/scor-scormengine-second/defaultui/player/modern.html";
+  await withServer((request, response) => {
+    if (request.url === "/ultra/stream") {
+      respondHtml(response, "<title>Courses</title><main>Course Content</main>");
+      return;
+    }
+    if (request.url === scormPath) {
+      respondHtml(
+        response,
+        `<button onclick="location.assign('${launchFramePath}')">Start attempt</button>`,
+      );
+      return;
+    }
+    if (request.url === launchFramePath) {
+      respondHtml(
+        response,
+        `<iframe src="${modernPlayerPath}"></iframe><iframe src="${secondPlayerPath}"></iframe>`,
+      );
+      return;
+    }
+    if (request.url === modernPlayerPath || request.url === secondPlayerPath) {
+      respondHtml(response, "<main>SCORM player</main>");
+      return;
+    }
+    response.writeHead(404);
+    response.end();
+  }, async (port) => {
+    await withBlackboardConfig(port, async () => {
+      const browser = await chromium.launch({ channel: "chrome", headless: true });
+      try {
+        const context = await browser.newContext();
+        await assert.rejects(
+          () => openScorm(context),
+          /SCORM attempt exposed multiple eligible player surfaces/,
         );
         await context.close();
       } finally {

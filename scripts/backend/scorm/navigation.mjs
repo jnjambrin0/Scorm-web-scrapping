@@ -13,6 +13,7 @@ import {
 } from "../browser/session-state.mjs";
 
 const navigationMetadataByPage = new WeakMap();
+const launchSurfaceByPage = new WeakMap();
 
 export function scormNavigationMetadata(page) {
   return navigationMetadataByPage.get(page) || null;
@@ -242,16 +243,40 @@ function delay(milliseconds) {
 
 function createAttemptLaunchTracker(context, sourcePage, target) {
   const pagesBeforeAttempt = new Set(context.pages());
+  const sourceFramesBeforeAttempt = new Map(
+    sourcePage.frames().map((frame) => [frame, frame.url()]),
+  );
   const observedPages = new Set([sourcePage]);
+  const observedSourceFrames = new Set();
   const sourceOrigin = pageOrigin(sourcePage);
+  let armed = false;
 
   const observePage = (candidate) => {
-    if (!pagesBeforeAttempt.has(candidate)) {
+    if (armed && !pagesBeforeAttempt.has(candidate)) {
       observedPages.add(candidate);
     }
   };
 
+  const observeSourceFrame = (frame) => {
+    if (armed) observedSourceFrames.add(frame);
+  };
+
   context.on("page", observePage);
+  sourcePage.on("frameattached", observeSourceFrame);
+  sourcePage.on("framenavigated", observeSourceFrame);
+
+  function frameBelongsToAttempt(candidate, frame) {
+    if (candidate !== sourcePage) return true;
+    if (frame === sourcePage.mainFrame()) return true;
+    if (!sourceFramesBeforeAttempt.has(frame)) return true;
+    // Blackboard may reuse an empty placeholder iframe for its frameset, but
+    // an already-loaded player/content iframe predates this click and must not
+    // be mistaken for the attempt currently being opened.
+    return (
+      observedSourceFrames.has(frame) &&
+      /^about:blank(?:#.*)?$/i.test(sourceFramesBeforeAttempt.get(frame))
+    );
+  }
 
   async function snapshot() {
     const pages = [...observedPages].filter(
@@ -275,14 +300,37 @@ function createAttemptLaunchTracker(context, sourcePage, target) {
       }
     }
 
-    const entries = pages.map((candidate) => ({
-      page: candidate,
-      relation: related.get(candidate) || "unrelated",
-      role: related.has(candidate)
-        ? launchPageRole(candidate.url(), target, sourceOrigin)
-        : null,
-      url: safePageUrl(candidate.url()),
-    }));
+    const entries = [];
+    for (const candidate of pages) {
+      const relation = related.get(candidate) || "unrelated";
+      entries.push({
+        page: candidate,
+        frame: candidate.mainFrame(),
+        relation,
+        surface: "top-level",
+        role: related.has(candidate)
+          ? launchPageRole(candidate.url(), target, sourceOrigin)
+          : null,
+        url: safePageUrl(candidate.url()),
+        hostUrl: safePageUrl(candidate.url()),
+      });
+
+      if (relation === "unrelated") continue;
+      for (const frame of candidate.frames()) {
+        if (frame === candidate.mainFrame() || !frameBelongsToAttempt(candidate, frame)) {
+          continue;
+        }
+        entries.push({
+          page: candidate,
+          frame,
+          relation,
+          surface: "inline-frame",
+          role: launchPageRole(frame.url(), target, sourceOrigin),
+          url: safePageUrl(frame.url()),
+          hostUrl: safePageUrl(candidate.url()),
+        });
+      }
+    }
     return {
       entries,
       unrelatedCount: entries.filter((entry) => entry.relation === "unrelated").length,
@@ -290,36 +338,68 @@ function createAttemptLaunchTracker(context, sourcePage, target) {
   }
 
   return {
+    arm() {
+      armed = true;
+    },
     dispose() {
       context.removeListener("page", observePage);
+      sourcePage.removeListener("frameattached", observeSourceFrame);
+      sourcePage.removeListener("framenavigated", observeSourceFrame);
     },
     snapshot,
+    pagesBeforeAttempt,
   };
 }
 
 function attemptDiagnostics(snapshot) {
   const related = snapshot.entries.filter((entry) => entry.relation !== "unrelated");
   const roles = related
-    .map((entry) => `${entry.relation}:${entry.role || "unknown"}:${entry.url}`)
+    .map(
+      (entry) =>
+        `${entry.relation}:${entry.surface}:${entry.role || "unknown"}:${entry.url}`,
+    )
     .join(", ");
-  return `observed pages: ${roles || "none"}; unrelated pages: ${snapshot.unrelatedCount}`;
+  return `observed launch surfaces: ${roles || "none"}; unrelated pages: ${snapshot.unrelatedCount}`;
 }
 
-async function waitForScormPlayer(tracker, target) {
+async function eligiblePlayerEntries(snapshot) {
+  const players = snapshot.entries.filter(
+    (entry) => entry.relation !== "unrelated" && isPlayerRole(entry.role),
+  );
+  // A real content frame normally appears beneath modern.html or indexAPI.html.
+  // Once a player document is present, it is the stable root for waitForFrame();
+  // counting its descendant content as a second player would make every frameset
+  // launch look ambiguous.
+  if (players.length > 0) return players;
+
+  const content = [];
+  for (const entry of snapshot.entries) {
+    if (entry.relation === "unrelated") continue;
+    if (entry.role === "content-window" && (await isContentFrame(entry.frame))) {
+      content.push(entry);
+    }
+  }
+  return content;
+}
+
+async function waitForScormPlayer(tracker) {
   const deadline = Date.now() + ATTEMPT_LAUNCH_TIMEOUT_MS;
   let lastSnapshot = await tracker.snapshot();
 
   while (Date.now() < deadline) {
-    const players = lastSnapshot.entries.filter(
-      (entry) => entry.relation !== "unrelated" && isPlayerRole(entry.role),
-    );
+    const players = await eligiblePlayerEntries(lastSnapshot);
     if (players.length === 1) {
       return {
         page: players[0].page,
+        frame: players[0].frame,
+        surface: players[0].surface,
+        pagesBeforeAttempt: tracker.pagesBeforeAttempt,
         metadata: {
           playerRole: players[0].role,
           playerUrl: players[0].url,
+          hostUrl: players[0].hostUrl,
           relation: players[0].relation,
+          surface: players[0].surface,
           bridgeSeen: lastSnapshot.entries.some(
             (entry) => entry.relation !== "unrelated" && entry.role === "launch-frame",
           ),
@@ -329,7 +409,7 @@ async function waitForScormPlayer(tracker, target) {
     }
     if (players.length > 1) {
       throw new Error(
-        `SCORM attempt opened multiple eligible player pages. ${attemptDiagnostics(
+        `SCORM attempt exposed multiple eligible player surfaces. ${attemptDiagnostics(
           lastSnapshot,
         )}`,
       );
@@ -343,7 +423,7 @@ async function waitForScormPlayer(tracker, target) {
   );
   if (bridgeSeen) {
     throw new Error(
-      `SCORM attempt reached Blackboard launch frame but did not open a supported player. ${attemptDiagnostics(
+      `SCORM attempt reached Blackboard launch frame but did not expose a supported player or content surface. ${attemptDiagnostics(
         lastSnapshot,
       )}`,
     );
@@ -632,13 +712,19 @@ export async function openScorm(context) {
   );
   let player;
   try {
+    attemptTracker.arm();
     await attemptControl.click();
-    player = await waitForScormPlayer(attemptTracker, expectedScormTarget);
+    player = await waitForScormPlayer(attemptTracker);
   } finally {
     attemptTracker.dispose();
   }
 
   const scormPage = player.page;
+  launchSurfaceByPage.set(scormPage, {
+    frame: player.frame,
+    surface: player.surface,
+    pagesBeforeAttempt: player.pagesBeforeAttempt,
+  });
 
   await scormPage
     .waitForLoadState("domcontentloaded", { timeout: 20000 })
@@ -684,12 +770,29 @@ async function isDescendantPopup(candidate, ancestor) {
   return false;
 }
 
+function isFrameWithin(frame, ancestor) {
+  const visited = new Set();
+  let current = frame;
+  while (current && !visited.has(current)) {
+    if (current === ancestor) return true;
+    visited.add(current);
+    current = current.parentFrame();
+  }
+  return false;
+}
+
 async function contentFrameInLaunchFamily(page) {
   const origin = pageOrigin(page);
   if (!origin) return null;
+  const binding = launchSurfaceByPage.get(page);
+  const launchSurface =
+    binding?.frame && !binding.frame.isDetached()
+      ? binding.frame
+      : page.mainFrame();
   const content = [];
   if (!page.isClosed()) {
     for (const frame of page.frames()) {
+      if (!isFrameWithin(frame, launchSurface)) continue;
       if (await isContentFrame(frame)) content.push(frame);
     }
   }
@@ -699,6 +802,7 @@ async function contentFrameInLaunchFamily(page) {
     .filter((candidate) => candidate !== page && !candidate.isClosed?.());
 
   for (const candidate of candidates) {
+    if (binding?.pagesBeforeAttempt?.has(candidate)) continue;
     if (pageOrigin(candidate) !== origin) continue;
     if (!/\/scormcontent(?:\/|$)/i.test(candidate.url())) continue;
     if (await isDescendantPopup(candidate, page)) {
@@ -720,8 +824,10 @@ export async function waitForFrame(page, { timeout = CONTENT_FRAME_TIMEOUT_MS } 
     await delay(POLL_INTERVAL_MS);
   }
 
+  const surface = launchSurfaceByPage.get(page)?.surface;
+  const playerLabel = surface === "inline-frame" ? "SCORM inline player" : "SCORM player";
   throw new Error(
-    `SCORM player was opened but its content surface did not become ready. Player: ${safePageUrl(
+    `${playerLabel} was opened but its content surface did not become ready. Player: ${safePageUrl(
       page.url(),
     )}`,
   );

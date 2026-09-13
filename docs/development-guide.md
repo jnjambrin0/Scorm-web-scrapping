@@ -96,7 +96,9 @@ afectada. Los wrappers solo deben preservar compatibilidad con los comandos npm.
 `waitForFrame()` exige un documento cargado bajo `scormcontent`, o un frame
 nombrado con DOM reconocible de Rise. Rechaza driver, launchFrame y reproductor
 Rustici como superficies de contenido, incluso si ya existe el iframe
-`scormdriver_content`. Ante varias superficies usables falla sin adivinar.
+`scormdriver_content`. Cuando el reproductor vive en un frameset, limita la
+búsqueda a ese reproductor y sus descendientes; ante varias superficies usables
+falla sin adivinar.
 
 `notion/asset-download.mjs` descarga `asset.absoluteUrl`, calculada desde el
 `baseUri` de la leccion, mediante fetch con credenciales dentro del frame.
@@ -232,10 +234,11 @@ El flujo observado tiene varias capas:
 - El item puede tener boton de `Iniciar intento` o `Continuar intento`.
 - Tras iniciar/continuar, Blackboard puede navegar por
   `.../scorm/launchFrame`, abrir un popup de Rustici SCORM Engine
-  (`.../defaultui/player/modern.html`) o mantener la ruta heredada
-  `scormdriver/indexAPI.html`. Estas rutas de reproductor no siempre contienen
-  el `itemId`; se validan por su mismo origen y por pertenecer a la secuencia
-  de popup iniciada desde el intento, nunca por inventar una URL.
+  (`.../defaultui/player/modern.html`), embeber ese reproductor en un iframe o
+  mantener la ruta heredada `scormdriver/indexAPI.html`. Estas rutas no siempre
+  contienen el `itemId`; se validan por su mismo origen y por pertenecer a la
+  secuencia de páginas o frames iniciada desde el intento, nunca por inventar
+  una URL.
 - El contenido real suele vivir en un frame llamado `scormdriver_content`, en
   una URL que contiene `/scormcontent/` o en una tercera ventana abierta por el
   reproductor. `waitForFrame()` es asíncrona y espera esa superficie antes de

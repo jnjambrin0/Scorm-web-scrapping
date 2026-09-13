@@ -18,7 +18,7 @@ flowchart TD
   Bootstrap --> Source[URL exacta y un reintento si acaba en Stream]
   Source --> Item[Ítem coincidente o enlace DOM único]
   Item --> Attempt[Start o Continue attempt]
-  Attempt --> Player[Seguimiento de launchFrame y popups del reproductor]
+  Attempt --> Player[Seguimiento de launchFrame, popups y frameset]
   Player --> Content[Contenido SCORM listo]
   Content --> Markdown[Markdown y manifest en staging]
   Markdown --> Promote[Promoción de exportación válida]
@@ -47,7 +47,7 @@ ese nuevo contexto ni sustituye su bootstrap.
 | Ejecución | `web/jobs.mjs` | Allowlist, overrides, progreso SSE, cancelación y finalización única en `close`. |
 | Cola | `web/queues.mjs`, `queue-store.mjs` | Orden, diez elementos por lote, revisiones, operaciones idempotentes y recuperación durable. |
 | Navegador | `browser/context.mjs`, `session.mjs` | Perfil persistente exclusivo; cierre del contexto y navegador antes de liberar el lock. |
-| Navegación | `scorm/navigation.mjs`, `urls.mjs` | Fuente inmutable; bootstrap, enlace real coincidente, cadena de popups y frame listo. |
+| Navegación | `scorm/navigation.mjs`, `urls.mjs` | Fuente inmutable; bootstrap, enlace real coincidente, cadena de popups, frameset y frame listo. |
 | Extracción | `overview.mjs`, `lesson-actions.mjs`, `rise-renderer.mjs`, `markdown-exporter.mjs` | Semántica Rise, `baseUri` por lección y exportación transaccional. |
 | Recursos | `notion/assets.mjs`, `asset-download.mjs` | Caché por fuente, descarga autenticada absoluta, progreso y diagnóstico por asset. |
 | Notion | `exporter.mjs`, `client.mjs`, `uploads.mjs`, `blocks.mjs` | Recursos válidos antes de publicar, uploads, página hija y bloques nativos. |
@@ -66,7 +66,8 @@ por sí solo no protege la caché durante la fase de publicación en Notion.
 
 `launchFrame` o `modern.html` pueden carecer de `itemId`. La pertenencia del
 reproductor se valida por origen y relación con la secuencia de apertura del
-intento. Una pestaña previa o ajena no es una alternativa válida.
+intento, tanto si ocupa una pestaña como si está embebido en un frameset. Una
+pestaña o un iframe previo o ajeno no es una alternativa válida.
 
 El nombre `scormdriver_content` no garantiza que el contenido esté listo.
 `waitForFrame()` descarta documentos de driver/reproductor y comprueba la
